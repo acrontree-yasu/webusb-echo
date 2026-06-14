@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<!--
+  WebUSB Bulk test page for the STM32N6570-DK firmware.
+
+  WebUSB requires a secure context. Serve this over https:// or from
+  http://localhost (which browsers treat as secure). Opening the file
+  directly with file:// will NOT work.
+
+  Quick local server (run from this folder):
+      python -m http.server 8000
+  then browse to http://localhost:8000
+
+  Supported browsers: Chrome / Edge (and Chromium derivatives) on a desktop OS.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>STM32N6 WebUSB Bulk</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; margin-right: 0.5rem; }
+    input { padding: 0.5rem; font-size: 1rem; width: 60%; }
+    #log { white-space: pre-wrap; background: #111; color: #0f0; padding: 1rem;
+           border-radius: 6px; height: 260px; overflow-y: auto; font-family: monospace; }
+    .row { margin: 1rem 0; }
+  </style>
+</head>
+<body>
+  <h1>STM32N6570-DK — WebUSB Bulk Echo</h1>
+
+  <div class="row">
+    <button id="connect">Connect</button>
+    <button id="disconnect" disabled>Disconnect</button>
+  </div>
+
+  <div class="row">
+    <input id="message" type="text" placeholder="Type something and press Send" value="Hello STM32N6!">
+    <button id="send" disabled>Send</button>
+  </div>
+
+  <div id="log"></div>
+
+<script>
+"use strict";
+
+// Must match idVendor / idProduct in usb_descriptors.c
+const USB_VID = 0xCafe;
+const USB_PID = 0x4001;
+
+// Vendor interface number and its bulk endpoints (from the config descriptor).
+const INTERFACE_NUMBER = 0;
+let   EP_IN  = 1;   // direction bit is added by the WebUSB API
+let   EP_OUT = 1;
+
+let device = null;
+let reading = false;
+
+const $ = (id) => document.getElementById(id);
+const log = (msg) => {
+  const el = $("log");
+  el.textContent += msg + "\n";
+  el.scrollTop = el.scrollHeight;
+};
+
+async function connect() {
+  try {
+    device = await navigator.usb.requestDevice({ filters: [{ vendorId: USB_VID, productId: USB_PID }] });
+    await device.open();
+    if (device.configuration === null) await device.selectConfiguration(1);
+    await device.claimInterface(INTERFACE_NUMBER);
+
+    // Discover the bulk endpoint numbers from the claimed interface so we don't
+    // have to hard-code them.
+    const itf = device.configuration.interfaces.find(i => i.interfaceNumber === INTERFACE_NUMBER);
+    for (const ep of itf.alternate.endpoints) {
+      if (ep.type === "bulk" && ep.direction === "in")  EP_IN  = ep.endpointNumber;
+      if (ep.type === "bulk" && ep.direction === "out") EP_OUT = ep.endpointNumber;
+    }
+
+    // Tell the firmware a browser is connected (vendor class request 0x22).
+    // Matches the handler in tud_vendor_control_xfer_cb().
+    await device.controlTransferOut({
+      requestType: "class",
+      recipient:   "interface",
+      request:     0x22,
+      value:       0x01,
+      index:       INTERFACE_NUMBER
+    });
+
+    log(`Connected: ${device.productName} (bulk IN=${EP_IN}, OUT=${EP_OUT})`);
+    $("connect").disabled = true;
+    $("disconnect").disabled = false;
+    $("send").disabled = false;
+
+    readLoop();   // start listening for echoed bytes
+  } catch (e) {
+    log("Connect error: " + e);
+  }
+}
+
+async function disconnect() {
+  reading = false;
+  try {
+    if (device) {
+      await device.controlTransferOut({
+        requestType: "class", recipient: "interface",
+        request: 0x22, value: 0x00, index: INTERFACE_NUMBER
+      });
+      await device.close();
+    }
+  } catch (e) { /* ignore */ }
+  device = null;
+  log("Disconnected.");
+  $("connect").disabled = false;
+  $("disconnect").disabled = true;
+  $("send").disabled = true;
+}
+
+async function send() {
+  if (!device) return;
+  const text = $("message").value;
+  const data = new TextEncoder().encode(text);
+  const result = await device.transferOut(EP_OUT, data);
+  log(`TX (${result.bytesWritten} B): ${text}`);
+}
+
+async function readLoop() {
+  reading = true;
+  while (reading && device) {
+    try {
+      const result = await device.transferIn(EP_IN, 512);
+      if (result.data && result.data.byteLength > 0) {
+        const text = new TextDecoder().decode(result.data);
+        log(`RX (${result.data.byteLength} B): ${text}`);
+      }
+    } catch (e) {
+      if (reading) log("Read error: " + e);
+      break;
+    }
+  }
+}
+
+$("connect").addEventListener("click", connect);
+$("disconnect").addEventListener("click", disconnect);
+$("send").addEventListener("click", send);
+$("message").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+
+if (!("usb" in navigator)) {
+  log("WebUSB is not available. Use Chrome/Edge over https:// or http://localhost.");
+  $("connect").disabled = true;
+}
+</script>
+</body>
+</html>
