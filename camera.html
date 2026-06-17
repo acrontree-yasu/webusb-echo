@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>STM32N6 WebUSB Camera Viewer</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 16px; background:#111; color:#eee; }
+  #view { background:#000; image-rendering: pixelated; border:1px solid #444; }
+  button { font-size:16px; padding:6px 14px; }
+  #stat { margin-left:12px; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <h3>STM32N6 WebUSB Camera (raw RGB565)</h3>
+  <button id="btn">Connect</button>
+  <span id="stat">idle</span>
+  <div style="margin-top:10px"><canvas id="view" width="320" height="240"></canvas></div>
+
+<script>
+// Must match idVendor / idProduct in usb_descriptors.c
+const USB_VID = 0xCafe;
+const USB_PID = 0x4001;
+
+// Frame header (see firmware framing protocol)
+const MAGIC = [0x55, 0x53, 0x42, 0x56]; // 'U','S','B','V'
+const HDR_LEN = 12;
+const FMT_RGB565 = 0;
+
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d');
+const stat = document.getElementById('stat');
+
+let device, epIn;
+let running = false;
+
+// rolling receive buffer
+let buf = new Uint8Array(0);
+function append(chunk) {
+  const n = new Uint8Array(buf.length + chunk.length);
+  n.set(buf, 0); n.set(chunk, buf.length); buf = n;
+}
+function findMagic() {
+  for (let i = 0; i + 4 <= buf.length; i++) {
+    if (buf[i]===MAGIC[0] && buf[i+1]===MAGIC[1] && buf[i+2]===MAGIC[2] && buf[i+3]===MAGIC[3]) return i;
+  }
+  return -1;
+}
+
+// fps counter
+let frames = 0, lastT = performance.now();
+
+function drawRGB565(width, height, pix) {
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width; canvas.height = height;
+  }
+  const img = ctx.createImageData(width, height);
+  const out = img.data;
+  for (let p = 0, o = 0; p < width*height; p++, o += 4) {
+    const lo = pix[p*2], hi = pix[p*2+1];
+    const px = lo | (hi << 8);                 // little-endian RGB565
+    const r = (px >> 11) & 0x1F;
+    const g = (px >> 5)  & 0x3F;
+    const b =  px        & 0x1F;
+    out[o]   = (r << 3) | (r >> 2);            // 5->8 bit
+    out[o+1] = (g << 2) | (g >> 4);            // 6->8 bit
+    out[o+2] = (b << 3) | (b >> 2);            // 5->8 bit
+    out[o+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  frames++;
+  const now = performance.now();
+  if (now - lastT >= 1000) {
+    stat.textContent = `${width}x${height}  ${frames} fps`;
+    frames = 0; lastT = now;
+  }
+}
+
+// parse as many complete frames as the buffer holds
+function parseFrames() {
+  for (;;) {
+    const m = findMagic();
+    if (m < 0) { if (buf.length > 1<<20) buf = buf.slice(-4); return; }
+    if (m > 0) buf = buf.slice(m);              // drop garbage before magic
+    if (buf.length < HDR_LEN) return;
+
+    const dv = new DataView(buf.buffer, buf.byteOffset, HDR_LEN);
+    const width  = dv.getUint16(4, true);
+    const height = dv.getUint16(6, true);
+    const format = dv.getUint8(8);
+    const need = HDR_LEN + width*height*2;      // RGB565 = 2 bytes/pixel
+    if (buf.length < need) return;              // wait for the rest
+
+    const pix = buf.subarray(HDR_LEN, need);
+    if (format === FMT_RGB565) drawRGB565(width, height, pix);
+    buf = buf.slice(need);                      // consume this frame
+  }
+}
+
+async function readLoop() {
+  running = true;
+  while (running && device && device.opened) {
+    let r;
+    try { r = await device.transferIn(epIn, 16384); }
+    catch (e) { console.warn(e); break; }
+    if (r.status === 'ok' && r.data && r.data.byteLength) {
+      append(new Uint8Array(r.data.buffer));
+      parseFrames();
+    } else if (r.status === 'stall') {
+      await device.clearHalt('in', epIn);
+    }
+  }
+  running = false;
+}
+
+async function connect() {
+  device = await navigator.usb.requestDevice({ filters: [{ vendorId: USB_VID, productId: USB_PID }] });
+  await device.open();
+  if (device.configuration === null) await device.selectConfiguration(1);
+
+  // find the vendor interface + its bulk IN endpoint
+  let itfNum = 0;
+  for (const itf of device.configuration.interfaces) {
+    const a = itf.alternate;
+    const inEp = a.endpoints.find(e => e.direction === 'in' && e.type === 'bulk');
+    if (inEp) { itfNum = itf.interfaceNumber; epIn = inEp.endpointNumber; break; }
+  }
+  await device.claimInterface(itfNum);
+  stat.textContent = 'streaming...';
+  readLoop();
+}
+
+document.getElementById('btn').onclick = async () => {
+  try {
+    if (device && device.opened) {                 // disconnect
+      running = false;
+      await device.close(); device = null;
+      stat.textContent = 'idle';
+      document.getElementById('btn').textContent = 'Connect';
+    } else {
+      await connect();
+      document.getElementById('btn').textContent = 'Disconnect';
+    }
+  } catch (e) { stat.textContent = 'error: ' + e.message; console.error(e); }
+};
+
+if (!('usb' in navigator)) stat.textContent = 'WebUSB not supported (use Chrome/Edge over https or localhost)';
+</script>
+</body>
+</html>
