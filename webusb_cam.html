@@ -1,0 +1,2872 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Udjat-I WebUSB Camera + Control</title>
+    <style>
+      /* =====================================================================
+   디자인은 전부 이 <style> 안에 있습니다.
+   맨 위 :root 의 색상 변수(--bg, --accent ...) 값만 바꿔도
+   페이지 전체 톤이 한 번에 바뀝니다. 여기부터 실험해 보세요.
+   ===================================================================== */
+      :root {
+        /* ── 색상 팔레트 ── */
+        --bg: #0d1017; /* 페이지 배경 */
+        --surface: #161b23; /* 패널(카드) 배경 */
+        --surface-2: #1e242e; /* 버튼 / hover */
+        --inset: #090b10; /* 영상·로그처럼 움푹 들어간 영역 */
+        --border: #2a313c; /* 진한 테두리 */
+        --border-soft: #20262f; /* 옅은 테두리 */
+        --text: #e7ebf2; /* 기본 글자색 */
+        --muted: #8a93a2; /* 보조 설명 글자 */
+        --faint: #59616f; /* 가장 흐린 글자 */
+        --accent: #4cc9e6; /* 강조색(시안) */
+        --accent-strong: #2bb4d4;
+        --accent-ink: #04222b; /* 강조 버튼 위의 글자색 */
+        --ok: #5ee08a; /* 정상 · 스트리밍 */
+        --warn: #f5b544; /* 주의 */
+        --danger: #f2726b; /* 위험 */
+        --col: 820px; /* 페이지 공통 칼럼 폭 — 영상·패널·로그가 같은 폭 */
+        --radius: 12px;
+        --mono:
+          ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+        --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        padding: 0 20px 40px;
+        font-family: var(--sans);
+        line-height: 1.5;
+        color: var(--text);
+        background:
+          radial-gradient(
+            1200px 600px at 82% -12%,
+            #14212c 0%,
+            transparent 60%
+          ),
+          var(--bg);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ── 상단 바 (연결 버튼 + 상태) ── */
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: center;
+        justify-content: space-between;
+        margin: 0 -20px 26px;
+        padding: 14px 24px;
+        background: rgba(13, 16, 23, 0.82);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--border-soft);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        font-size: 17px;
+        color: var(--accent-ink);
+        background: linear-gradient(140deg, var(--accent), #2b8fd4);
+        box-shadow:
+          0 0 0 1px rgba(76, 201, 230, 0.35),
+          0 6px 18px -6px rgba(76, 201, 230, 0.6);
+      }
+      .brand-title {
+        font-size: 15px;
+        font-weight: 650;
+        letter-spacing: 0.2px;
+      }
+      .brand-sub {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        letter-spacing: 0.3px;
+      }
+      .conn-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      /* ── 상태 배지 ── */
+      .status-pill {
+        position: relative;
+        white-space: nowrap;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--ok);
+        padding: 6px 12px 6px 24px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
+      }
+      .status-pill::before {
+        content: "";
+        position: absolute;
+        left: 11px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 8px currentColor;
+      }
+
+      /* ── 버튼 ── */
+      .btn {
+        font-family: var(--sans);
+        font-size: 12px;
+        font-weight: 500;
+        padding: 6px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        color: var(--text);
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        transition:
+          background 0.15s,
+          border-color 0.15s,
+          transform 0.05s;
+      }
+      .btn:hover {
+        background: #252c37;
+        border-color: #39424f;
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .btn-primary {
+        color: var(--accent-ink);
+        font-weight: 650;
+        border-color: transparent;
+        background: linear-gradient(
+          180deg,
+          var(--accent),
+          var(--accent-strong)
+        );
+      }
+      .btn-primary:hover {
+        filter: brightness(1.07);
+      }
+
+      /* ── 전체 레이아웃 ── */
+      .layout {
+        display: grid;
+        gap: 24px;
+        max-width: var(--col);
+        margin: 0 auto;
+      }
+
+      /* 영상 뷰포트 */
+      .viewport {
+        display: flex;
+        justify-content: center;
+      }
+      .viewport-frame {
+        position: relative;
+        width: 100%;
+        max-width: var(--col);
+        padding: 10px;
+        border-radius: 14px;
+        background: var(--inset);
+        border: 1px solid var(--border);
+      }
+
+      /* 영상 위 소스 표시: 라이브면 "Live", 클립 재생 중이면 파일명 */
+      .vid-badge {
+        position: absolute;
+        top: 16px;
+        left: 34px;
+        z-index: 2;
+        pointer-events: none;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        letter-spacing: 0.3px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        color: var(--muted);
+        background: rgba(9, 11, 16, 0.72);
+        border: 1px solid var(--border-soft);
+      }
+      /* 녹화 클립을 보고 있을 때 */
+      .vid-badge.playing {
+        color: var(--accent-ink);
+        background: var(--accent);
+        border-color: transparent;
+      }
+
+      /* 재생 진행 바 — 클립을 볼 때만 영상 밑에 나타난다.
+         값은 파일 위치(바이트) 기준이라 시간과 정확히 비례하지는 않는다. */
+      .playbar {
+        margin-top: 8px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--border-soft);
+        overflow: hidden;
+      }
+      .playbar > div {
+        height: 100%;
+        width: 0%;
+        background: var(--accent);
+        border-radius: inherit;
+        transition: width 0.3s linear;
+      }
+      .viewport-frame canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #000;
+        border-radius: 6px;
+      }
+      /* 카메라 뷰파인더 느낌의 모서리 브래킷 (순수 CSS 장식) */
+      .viewport-frame::before,
+      .viewport-frame::after {
+        content: "";
+        position: absolute;
+        width: 22px;
+        height: 22px;
+        pointer-events: none;
+        border: 2px solid var(--accent);
+        opacity: 0.7;
+      }
+      .viewport-frame::before {
+        top: 6px;
+        left: 6px;
+        border-right: 0;
+        border-bottom: 0;
+        border-radius: 6px 0 0 0;
+      }
+      .viewport-frame::after {
+        bottom: 6px;
+        right: 6px;
+        border-left: 0;
+        border-top: 0;
+        border-radius: 0 0 6px 0;
+      }
+
+      /* 패널 그리드 (화면 폭에 따라 열 수가 자동 조절됨) */
+      /* 패널은 항상 세로 1열 — 화면이 넓어져도 칼럼 폭(--col)이 고정이라
+   좀은 화면과 배치감이 같다 */
+      .panels {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      /* 탭 밖에 놓는 패널(장치 제어) — 탭 영역과 같은 칼럼 폭·같은 간격 */
+      .panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 9px;
+        padding: 16px;
+        border-radius: var(--radius);
+        text-align: center; /* 제목·상태·설명 글 가운데 */
+        background: var(--surface);
+        border: 1px solid var(--border-soft);
+      }
+
+      /* 지금 모드에서 쓸 수 없는 패널 — 흐리게 + 안의 컨트롤은 JS 가 disabled 로 */
+      .panel.disabled {
+        opacity: 0.4;
+      }
+      /* 패널 제목 (이전 h4 자리를 그대로 대신함) */
+      .panel-label {
+        font-size: 15px;
+        font-weight: 620;
+        color: var(--text);
+      }
+      .info {
+        font-family: var(--mono);
+        font-size: 13.5px;
+        color: var(--muted);
+        word-break: break-all;
+        min-height: 16px;
+      }
+      .hint {
+        font-size: 11px;
+        color: var(--faint);
+        line-height: 1.45;
+      }
+      /* 펌웨어 다운로드 진행 막대 */
+      .ota-prog {
+        width: 100%;
+        max-width: 340px;
+        height: 10px;
+      }
+      .panel .btn {
+        width: 100%;
+        max-width: 340px;
+      }
+
+      /* 버튼 두 개를 한 줄에 (세로 스크롤 줄이기) */
+      .btn-row {
+        display: flex;
+        gap: 8px;
+        width: 100%;
+        max-width: 340px;
+      }
+      .btn-row .btn {
+        flex: 1;
+        max-width: none;
+      }
+
+      /* 녹화 파일 목록 */
+      .filelist {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        max-width: 340px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .filelist li {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+      .filelist .fname {
+        flex: 1;
+        text-align: left;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .filelist .fsz {
+        color: var(--faint);
+      }
+      /* 목록 안의 작은 아이콘 버튼(재생 / 삭제) */
+      .iconbtn {
+        font-family: var(--sans);
+        font-size: 12px;
+        line-height: 1;
+        padding: 4px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        color: var(--text);
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+      }
+      .iconbtn:hover {
+        background: #252c37;
+        border-color: #39424f;
+      }
+      .iconbtn.danger {
+        color: var(--danger);
+      }
+      /* 재생 중인 클립 강조 */
+      .filelist li.playing .fname {
+        color: var(--accent);
+      }
+
+      /* 입력창 */
+      .field {
+        width: 100%;
+        font-family: var(--sans);
+        font-size: 13.5px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        color: var(--text);
+        background: var(--inset);
+        border: 1px solid var(--border);
+      }
+      .panel input.field {
+        max-width: 340px;
+      }
+      .field {
+        text-align: left;
+      }
+      .field:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .field::placeholder {
+        color: var(--faint);
+      }
+      textarea.field {
+        resize: vertical;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: #bfe9cf;
+        line-height: 1.5;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .panel .stack {
+        width: 100%;
+        max-width: 340px;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .check input {
+        width: auto;
+        accent-color: var(--accent);
+      }
+
+      /* ── 탭 (영상 아래 제어 영역) ── */
+      .tabs {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .tabbar {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        padding: 4px;
+        border-radius: 11px;
+        background: var(--surface);
+        border: 1px solid var(--border-soft);
+      }
+      .tab {
+        flex: 1 1 130px;
+        font-family: var(--sans);
+        font-size: 13.5px;
+        font-weight: 550;
+        padding: 9px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+        color: var(--muted);
+        background: transparent;
+        border: 1px solid transparent;
+        transition:
+          color 0.15s,
+          background 0.15s,
+          border-color 0.15s;
+      }
+      .tab:hover {
+        color: var(--text);
+        background: var(--surface-2);
+      }
+      .tab:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .tab[aria-selected="true"] {
+        color: var(--accent);
+        background: var(--surface-2);
+        border-color: var(--border);
+        box-shadow: inset 0 -2px 0 var(--accent);
+      }
+      /* 숨긴 탭은 grid 데시 안 보이게 (선택자가 .panels 보다 강함) */
+      .tabpane[hidden] {
+        display: none;
+      }
+
+      /* ── 라디오 한 줄(DHCP / Static IP 처럼 배타 선택) ── */
+      .radios {
+        display: flex;
+        justify-content: center;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .radio {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12.5px;
+        color: var(--text);
+        cursor: pointer;
+      }
+      .radio input {
+        width: auto;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+      /* 선택 안 된 모드의 입력칸은 흐리게 (비활성은 JS 가 건다) */
+      .stack.off {
+        opacity: 0.4;
+      }
+      /* ── 컨트롤 바(슬라이더) — 검출 품질 파라미터 ── */
+      .ctl {
+        width: 100%;
+        max-width: 340px;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .ctl label {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+      .ctl .val {
+        font-weight: 650;
+        color: var(--accent);
+      }
+      .slider {
+        width: 100%;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+      .slider:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 3px;
+      }
+      .ctl-hint {
+        font-size: 10.5px;
+        color: var(--faint);
+        line-height: 1.4;
+      }
+
+      /* ── 로그(콘솔) ── */
+      .console {
+        max-width: var(--col);
+        margin: 24px auto 0;
+      }
+      .console-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        width: fit-content;
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .console-head input {
+        width: auto;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+      #log {
+        white-space: pre-wrap;
+        font-family: var(--mono);
+        font-size: 12px;
+        line-height: 1.55;
+        color: #a7d9c4;
+        padding: 12px 14px;
+        height: 150px;
+        overflow: auto;
+        background: var(--inset);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+        }
+      }
+      @media (max-width: 560px) {
+        body {
+          padding: 0 12px 32px;
+        }
+        .topbar {
+          padding-left: 16px;
+          padding-right: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 상단 바 -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">◉</span>
+        <div>
+          <div class="brand-title">Udjat-I Camera Console</div>
+          <div class="brand-sub">WebUSB · HW H.264 · device control</div>
+        </div>
+      </div>
+      <div class="conn-controls">
+        <button id="conn" class="btn btn-primary">Connect</button>
+        <button id="disc" class="btn">Disconnect</button>
+        <span id="stat" class="status-pill">idle</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <!-- 실시간 영상 -->
+      <section class="viewport">
+        <div class="viewport-frame">
+          <canvas id="cv" width="800" height="480"></canvas>
+          <div id="vidBadge" class="vid-badge">Live</div>
+          <div id="playBar" class="playbar" hidden>
+            <div id="playBarFill"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 제어 탭 (System / Network / Inference / Storage) -->
+      <div class="tabs">
+        <div class="tabbar" role="tablist" aria-label="Device settings">
+          <button
+            class="tab"
+            role="tab"
+            id="tab-system"
+            aria-controls="pane-system"
+            aria-selected="true"
+            tabindex="0"
+          >
+            System
+          </button>
+          <button
+            class="tab"
+            role="tab"
+            id="tab-network"
+            aria-controls="pane-network"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Network
+          </button>
+          <button
+            class="tab"
+            role="tab"
+            id="tab-wifi"
+            aria-controls="pane-wifi"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            WiFi/BLE
+          </button>
+          <button
+            class="tab"
+            role="tab"
+            id="tab-inference"
+            aria-controls="pane-inference"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Inference
+          </button>
+          <button
+            class="tab"
+            role="tab"
+            id="tab-storage"
+            aria-controls="pane-storage"
+            aria-selected="false"
+            tabindex="-1"
+          >
+            Storage
+          </button>
+        </div>
+
+        <section
+          class="tabpane panels"
+          role="tabpanel"
+          id="pane-system"
+          aria-labelledby="tab-system"
+        >
+          <div class="panel">
+            <span class="panel-label">Device Info.</span>
+            <div id="devName" class="info">—</div>
+            <div id="devFw" class="info">—</div>
+            <div id="devBuilt" class="info">—</div>
+            <input
+              id="locInput"
+              class="field"
+              type="text"
+              maxlength="55"
+              placeholder="Device location  e.g. 3층 로비 동편"
+            />
+            <div class="btn-row">
+              <button id="locSet" class="btn">Apply</button>
+              <button id="locGet" class="btn">Refresh</button>
+            </div>
+          </div>
+          <div class="panel">
+            <span class="panel-label">Camera Orientation</span>
+            <div class="radios" role="radiogroup" aria-label="Camera orientation">
+              <label class="radio">
+                <input type="radio" name="orient" value="0" checked />
+                0°
+              </label>
+              <label class="radio">
+                <input type="radio" name="orient" value="1" />
+                180°
+              </label>
+              <label class="radio">
+                <input type="radio" name="orient" value="2" />
+                Mirror ↔
+              </label>
+              <label class="radio">
+                <input type="radio" name="orient" value="3" />
+                Flip ↕
+              </label>
+            </div>
+            <div id="orientInfo" class="info">—</div>
+            <div class="hint">
+              Applied by the camera sensor to every stream (USB, web, RTSP) and
+              saved on the device (EEPROM).
+            </div>
+          </div>
+          <div class="panel">
+            <span class="panel-label">Password</span>
+            <input
+              id="pwInput"
+              class="field"
+              type="password"
+              maxlength="63"
+              placeholder="(empty = open access)"
+            />
+            <label class="check">
+              <input id="pwShow" type="checkbox" /> show
+            </label>
+            <div class="btn-row">
+              <button id="pwSet" class="btn">Apply</button>
+              <button id="pwGet" class="btn">Refresh</button>
+            </div>
+            <div class="hint">
+              Gates the Ethernet web server (HTTP Basic auth). Empty clears it.
+            </div>
+          </div>
+          <div class="panel">
+            <span class="panel-label">Firmware Download</span>
+            <div id="otaLast" class="info">Last update: —</div>
+            <input
+              id="otaPw"
+              class="field"
+              type="password"
+              maxlength="32"
+              placeholder="OTA password (set at the factory)"
+            />
+            <input id="otaFile" class="field" type="file" accept=".ota" />
+            <div id="otaInfo" class="info">—</div>
+            <progress id="otaProg" class="ota-prog" max="100" value="0"></progress>
+            <div id="otaStat" class="info">—</div>
+            <div class="btn-row">
+              <button id="otaSend" class="btn" disabled>Upload</button>
+              <button id="otaReboot" class="btn" disabled>Reboot &amp; Install</button>
+            </div>
+            <div class="hint">
+              Enter the OTA password (set at the factory with the CLI command
+              "otapw set") and choose an .ota file (Tools/make_ota.py). It is
+              checked, saved to the SD card (OTA folder) and installed by the
+              bootloader on the next boot. Eject the USB drive (Storage tab) first.
+            </div>
+          </div>
+        </section>
+
+        <section
+          class="tabpane panels"
+          role="tabpanel"
+          id="pane-network"
+          aria-labelledby="tab-network"
+          hidden
+        >
+          <div class="panel">
+            <span class="panel-label">Device Name</span>
+            <input
+              id="nameInput"
+              class="field"
+              type="text"
+              maxlength="32"
+              placeholder="e.g. lab-cam1"
+            />
+            <div class="btn-row">
+              <button id="nameSet" class="btn">Apply</button>
+              <button id="nameGet" class="btn">Refresh</button>
+            </div>
+            <div id="nameInfo" class="info">—</div>
+            <div class="hint">
+              Sets the mDNS hostname. a–z, 0–9, “-” only (others become “-”). A
+              “-&lt;uid&gt;” suffix is added for uniqueness.
+            </div>
+          </div>
+          <div class="panel">
+            <span class="panel-label">IP Setting</span>
+            <div class="radios" role="radiogroup" aria-label="IP mode">
+              <label class="radio">
+                <input
+                  type="radio"
+                  name="ipMode"
+                  id="ipModeDhcp"
+                  value="dhcp"
+                  checked
+                />
+                DHCP
+              </label>
+              <label class="radio">
+                <input
+                  type="radio"
+                  name="ipMode"
+                  id="ipModeStatic"
+                  value="static"
+                />
+                Static IP
+              </label>
+            </div>
+            <div class="stack" id="ipFields">
+              <input
+                id="ipAddr"
+                class="field"
+                type="text"
+                maxlength="15"
+                placeholder="IP  e.g. 192.168.0.50"
+              />
+              <input
+                id="ipMask"
+                class="field"
+                type="text"
+                maxlength="15"
+                placeholder="Netmask  e.g. 255.255.255.0"
+              />
+              <input
+                id="ipGw"
+                class="field"
+                type="text"
+                maxlength="15"
+                placeholder="Gateway  e.g. 192.168.0.1"
+              />
+            </div>
+            <div class="btn-row">
+              <button id="ipSet" class="btn">Apply</button>
+              <button id="ipGet" class="btn">Refresh</button>
+            </div>
+            <div id="ipInfo" class="info">—</div>
+            <div class="hint">
+              Ethernet interface. Applies within ~1 s — you must then reconnect
+              to the new address.
+            </div>
+          </div>
+        </section>
+
+        <section
+          class="tabpane panels"
+          role="tabpanel"
+          id="pane-wifi"
+          aria-labelledby="tab-wifi"
+          hidden
+        >
+          <div class="panel">
+            <span class="panel-label">Mode</span>
+            <div class="radios" role="radiogroup" aria-label="WiFi mode">
+              <label class="radio">
+                <input type="radio" name="wifiMode" id="modeOff" value="off" checked />
+                Off
+              </label>
+              <label class="radio">
+                <input type="radio" name="wifiMode" id="modeSta" value="sta" />
+                STA
+              </label>
+              <label class="radio">
+                <input type="radio" name="wifiMode" id="modeAp" value="ap" />
+                AP
+              </label>
+            </div>
+            <div id="wifiState" class="info">—</div>
+            <div id="wifiIp" class="info">—</div>
+            <div class="hint">
+              STA 는 공유기에 붙는 보통 모드. AP 는 이 장치가 무선 공유기가 되어
+              폰이 직접 붙는다(현장 점검용) — 192.168.4.1 로 접속하면 이더넷에서
+              보던 웹 화면이 그대로 나온다. 둘은 배타적이다.
+            </div>
+          </div>
+          <div class="panel" id="panelJoin">
+            <span class="panel-label">Join</span>
+            <input
+              id="wifiSsid"
+              class="field"
+              type="text"
+              maxlength="32"
+              placeholder="SSID (아래 목록에서 골라도 됨)"
+            />
+            <input
+              id="wifiPwd"
+              class="field"
+              type="password"
+              maxlength="63"
+              placeholder="password (open AP 면 비움)"
+            />
+            <div class="btn-row">
+              <button id="wifiScan" class="btn">Scan</button>
+              <button id="wifiJoin" class="btn">Join</button>
+            </div>
+            <ul id="wifiList" class="filelist"></ul>
+          </div>
+          <div class="panel" id="panelAp">
+            <span class="panel-label">SoftAP</span>
+            <input
+              id="apSsid"
+              class="field"
+              type="text"
+              maxlength="32"
+              placeholder="AP SSID (비우면 장치 이름)"
+            />
+            <input
+              id="apPwd"
+              class="field"
+              type="password"
+              maxlength="63"
+              placeholder="password (8자 미만이면 개방 AP)"
+            />
+            <div class="hint">
+              AP 를 고르면 이 값으로 뜬다. 8자 이상이면 WPA2, 아니면 개방.
+            </div>
+          </div>
+        </section>
+
+        <section
+          class="tabpane panels"
+          role="tabpanel"
+          id="pane-inference"
+          aria-labelledby="tab-inference"
+          hidden
+        >
+          <div class="panel">
+            <span class="panel-label">Model</span>
+            <div id="mName" class="info">—</div>
+            <div id="mShape" class="info">—</div>
+            <div id="mWeights" class="info">—</div>
+          </div>
+          <div class="panel">
+            <span class="panel-label">Tuning</span>
+            <div class="ctl">
+              <label for="sDetConf"
+                >det.conf <span class="val" id="vDetConf">—</span></label
+              >
+              <input
+                id="sDetConf"
+                class="slider"
+                type="range"
+                min="5"
+                max="95"
+                step="1"
+              />
+              <div class="ctl-hint">
+                검출 문턱. 올리면 오검출↓ 놓침↑ — 여기 못 넘으면 박스도 트랙도
+                없다
+              </div>
+            </div>
+            <div class="ctl">
+              <label for="sTrkDet"
+                >trk.det <span class="val" id="vTrkDet">—</span></label
+              >
+              <input
+                id="sTrkDet"
+                class="slider"
+                type="range"
+                min="5"
+                max="95"
+                step="1"
+              />
+              <div class="ctl-hint">
+                새 ID 생성 문턱. 박스는 보이는데 번호가 안 붙으면 이걸 내린다
+              </div>
+            </div>
+            <div class="ctl">
+              <label for="sRunPeriod"
+                >run.period <span class="val" id="vRunPeriod">—</span></label
+              >
+              <input
+                id="sRunPeriod"
+                class="slider"
+                type="range"
+                min="5"
+                max="200"
+                step="5"
+              />
+              <div class="ctl-hint">
+                추론 사이 지연(ms) = fps. tlost 가 프레임 단위라 아래 값들의
+                의미도 바뀐다
+              </div>
+            </div>
+            <div class="ctl">
+              <label for="sTrkTlost"
+                >trk.tlost <span class="val" id="vTrkTlost">—</span></label
+              >
+              <input
+                id="sTrkTlost"
+                class="slider"
+                type="range"
+                min="1"
+                max="120"
+                step="1"
+              />
+              <div class="ctl-hint">
+                놓친 뒤 ID 를 붙들 프레임 수(가림·이탈 후 재등장)
+              </div>
+            </div>
+            <div class="ctl">
+              <label for="sTrkTrack"
+                >trk.track <span class="val" id="vTrkTrack">—</span></label
+              >
+              <input
+                id="sTrkTrack"
+                class="slider"
+                type="range"
+                min="5"
+                max="95"
+                step="1"
+              />
+              <div class="ctl-hint">
+                검출을 high/low 로 가르는 선. det.conf 보다 높아야 저점수 복구가
+                동작
+              </div>
+            </div>
+            <button id="tuneDefault" class="btn">Default</button>
+            <div class="hint">
+              Each bar pushes just its own key (vendor request 0x1D) about a
+              fifth of a second after you stop dragging. Same path as CLI
+              <code>aiprof set</code> — RAM first, SD write by the AI task.
+              Touching a trk.* value re-inits the tracker, so track IDs restart.
+            </div>
+          </div>
+          <div class="panel">
+            <span class="panel-label">Profile</span>
+            <textarea
+              id="pfText"
+              class="field"
+              rows="12"
+              spellcheck="false"
+              readonly
+            ></textarea>
+            <div class="hint">
+              AI 동작 전체(임계값·볼 클래스·라벨·표시)가 이 텍스트다. 여기서는
+              보기만 하고, 바꾸는 것은 위 Tuning 컨트롤 바 또는 CLI
+              <code>aiprof set</code> / <code>aiprof reset</code>. 연결 직후와
+              컨트롤 바를 움직인 뒤 자동으로 다시 읽는다.
+            </div>
+          </div>
+        </section>
+
+        <section
+          class="tabpane panels"
+          role="tabpanel"
+          id="pane-storage"
+          aria-labelledby="tab-storage"
+          hidden
+        >
+          <div class="panel">
+            <span class="panel-label">Recordings</span>
+            <div id="recStat" class="info">—</div>
+            <button id="recToggle" class="btn">● REC</button>
+            <ul id="recList" class="filelist"></ul>
+          </div>
+          <div class="panel">
+            <span class="panel-label">Mass Storage Class</span>
+            <div id="sdStat" class="info"></div>
+            <div class="btn-row">
+              <button id="sdMount" class="btn">Mount</button>
+              <button id="sdUnmount" class="btn">Unmount</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- 항상 보이는 장치 제어(탭 밖) -->
+    <!-- 로그 -->
+    <section class="console">
+      <label class="console-head">
+        <input id="logShow" type="checkbox" />
+        Log
+      </label>
+      <div id="log" hidden></div>
+    </section>
+
+    <script>
+      const logEl = document.getElementById("log");
+      const stat = document.getElementById("stat");
+      const cv = document.getElementById("cv");
+      const ctx = cv.getContext("2d");
+      function log(...a) {
+        const s = a.join(" ");
+        logEl.textContent += s + "\n";
+        logEl.scrollTop = logEl.scrollHeight;
+        console.log(...a);
+      }
+
+      let dev = null,
+        epIn = 0,
+        epOut = 0,
+        itfNum = 0,
+        running = false;
+      let decoder = null,
+        ts = 0,
+        started = false,
+        recovering = false;
+      let frames = 0,
+        lastT = performance.now();
+
+      // Control command IDs (wValue of VENDOR_REQUEST_CONTROL 0x10; must match usb_app.c)
+      // LED_ON/LED_OFF 는 화면에서 안 쓴다(Device control 패널 제거) — 프로토콜 기록용.
+      const CMD = {
+        KEYFRAME: 0x01,
+        LED_ON: 0x02,
+        LED_OFF: 0x03,
+        SD_MOUNT: 0x04,
+        SD_UNMOUNT: 0x05,
+        REC_START: 0x06,
+        REC_STOP: 0x07,
+        PLAY_STOP: 0x08,
+        WIFI_ON: 0x09,
+        WIFI_OFF: 0x0a,
+        WIFI_SCAN: 0x0b,
+        REBOOT: 0x0c, // 재부팅 → 부트로더가 SD 의 .ota 를 설치
+      };
+
+      // Vendor control requests (must match usb_app.c enum).
+      const REQ = { STATUS: 0x11, SET_PW: 0x12, GET_PW: 0x13 };
+      const PW_MAX_LEN = 63; // keep in sync with pw.h
+
+      // Vendor control requests for the device/mDNS name (must match usb_app.c enum).
+      const NAMEREQ = { SET: 0x14, GET: 0x15, HOST: 0x16 };
+      const NAME_MAX_LEN = 32; // keep in sync with name.h
+
+      // Vendor control requests for the static-IP config (must match usb_app.c enum).
+      const IPREQ = { SET: 0x17, GET: 0x18, CUR: 0x19 };
+      const STATICIP_MAX_LEN = 63; // keep in sync with staticip.h
+
+      // Vendor control request for the built-in AI model (must match usb_app.c enum).
+      const MODELREQ = { GET: 0x1a }; // control IN: model name as text
+      const MODEL_INFO_MAX = 256; // 0x1A 응답(key=value 줄들) 수신 상한
+
+      // Vendor control requests for the AI profile (must match usb_app.c enum).
+      // SET(0x1B, 프로필 전체 교체)은 이 페이지에선 안 쓴다 — 프로토콜 기록으로만 남긴다.
+      const PROFREQ = { SET: 0x1b, GET: 0x1c, SET_KV: 0x1d }; // SET_KV: "key=value" 하나만
+      // Recordings: 상태/목록은 control IN, 재생·삭제는 클립 이름을 실은 control OUT.
+      const RECREQ = { STATUS: 0x1e, LIST: 0x1f, PLAY: 0x20, DELETE: 0x21 };
+      // Device Info: 0x22 = 이름/리비전/빌드시각(읽기 전용), 0x23/0x24 = 설치 장소.
+      const DEVREQ = { INFO: 0x22, SET_LOC: 0x23, GET_LOC: 0x24 };
+      // Camera Orientation: 0x29 = 설정(wValue = 0 정상, 1 180°, 2 좌우 반전, 3 상하 반전, 데이터 없음),
+      // 0x2A = 조회(1 바이트). 장치가 센서에 적용하고 EEPROM 에 저장한다(usb_app.c, cam_app.c).
+      const ORIENTREQ = { SET: 0x29, GET: 0x2a };
+      const ORIENT_NAMES = ["0° (normal)", "180°", "Mirror (left-right)", "Flip (up-down)"];
+      // WiFi: 상태/스캔은 control IN(장치가 캐시), 접속은 SSID 와
+      // 비밀번호를 개행으로 이은 문자열을 control OUT 데이터 스테이지로.
+      const WIFIREQ = { STATUS: 0x25, SCAN: 0x26, JOIN: 0x27, AP: 0x28 };
+      const WIFI_SCAN_MAX = 768; // wifi_app.c 의 WIFI_SCAN_TEXT_MAX 와 동일
+      const LOCATION_MAX_LEN = 55; // keep in sync with location.h
+      const REC_LIST_MAX = 768; // rec_app.c 의 REC_LIST_MAX 와 동일
+      const AIPROF_TEXT_MAX = 2047; // keep in sync with aiprof.h
+
+      if (!("usb" in navigator)) {
+        stat.textContent = "WebUSB not supported";
+        log("Use Chrome/Edge over https or http://localhost");
+      }
+      if (!("VideoDecoder" in window)) {
+        log("WARNING: WebCodecs VideoDecoder not available.");
+      }
+
+      //------------------------------------------------------------- decoder
+      function makeDecoder() {
+        if (decoder) {
+          try {
+            if (decoder.state !== "closed") decoder.close();
+          } catch (e) {}
+        }
+        ts = 0;
+        started = false;
+        recovering = false;
+        decoder = new VideoDecoder({
+          output: (frame) => {
+            try {
+              ctx.drawImage(frame, 0, 0, cv.width, cv.height);
+            } catch (e) {}
+            frame.close();
+            frames++;
+            const now = performance.now();
+            if (now - lastT >= 1000) {
+              stat.textContent = `streaming ${cv.width}x${cv.height} @ ${frames}fps`;
+              frames = 0;
+              lastT = now;
+            }
+          },
+          error: (e) => {
+            log("decoder error:", e.message);
+            recover();
+          },
+        });
+        decoder.configure({
+          codec: "avc1.640028",
+          optimizeForLatency: true,
+          hardwareAcceleration: "no-preference",
+        });
+        log("decoder configured — waiting for key frame");
+      }
+      function recover() {
+        if (recovering) return;
+        recovering = true;
+        stat.textContent = "recovering…";
+        setTimeout(() => {
+          if (running) {
+            makeDecoder();
+            requestKeyframe();
+          }
+        }, 0);
+      }
+
+      //------------------------------------------------------------- control (bulk OUT)
+      let lastKeyReq = 0;
+
+      // ── 컨트롤 전송 직렬화 ────────────────────────────────────────────────
+      // 패널이 늘면서 상태 조회가 여러 개 동시에 나가는데, EP0 는 하나뿐이라
+      // 겹치면 서로를 넘어뜨린다. 특히 장치가 모르는 요청(구 펌웨어)에 stall 을
+      // 돌려줄 때 옆의 정상 조회까지 같이 실패했다. 그래서 컨트롤을 쓰는 일은
+      // 전부 이 큐를 지나 하나씩 순서대로 나간다. 실패는 여기서 삼켜 다음 작업이
+      // 멈추지 않게 한다(각 함수가 이미 자기 로그를 남긴다).
+      let ctrlChain = Promise.resolve();
+      function ctrlQueue(fn) {
+        ctrlChain = ctrlChain.then(fn).catch(() => {});
+        return ctrlChain;
+      }
+
+      // Commands go over EP0 control transfers (independent of the bulk IN video
+      // stream, which would otherwise starve a bulk OUT). wValue carries the command.
+      async function sendCmd(cmd) {
+        if (!dev) {
+          log("sendCmd: not connected");
+          return;
+        }
+        // 커맨드도 조회와 같은 줄에 세운다 — 폴링이 도는 중에 버튼을 눌러도
+        // EP0 에서 겹치지 않는다.
+        return ctrlQueue(async () => {
+          try {
+            const r = await dev.controlTransferOut({
+              requestType: "vendor",
+              recipient: "device",
+              request: 0x10 /* VENDOR_REQUEST_CONTROL */,
+              value: cmd,
+              index: 0,
+            });
+            log("sent cmd 0x" + cmd.toString(16) + " -> " + r.status);
+          } catch (e) {
+            log("control send error:", e.name, e.message);
+          }
+        });
+      }
+
+      // 큐 안에서 부르는 커맨드 전송. sendCmd 는 스스로 ctrlQueue 에 넣으므로,
+      // 이미 큐 안에서 도는 코드가 그걸 await 하면 자기 뒤에 붙은 작업을 기다리는
+      // 꼴이 되어 ★큐 전체가 멈춘다★(모드 라디오가 아무 반응이 없던 원인).
+      // 큐 밖에서는 sendCmd, 큐 안에서는 이것을 쓴다.
+      async function sendCmdRaw(cmd) {
+        if (!dev) {
+          log("sendCmd: not connected");
+          return;
+        }
+        try {
+          const r = await dev.controlTransferOut({
+            requestType: "vendor",
+            recipient: "device",
+            request: 0x10 /* VENDOR_REQUEST_CONTROL */,
+            value: cmd,
+            index: 0,
+          });
+          log("sent cmd 0x" + cmd.toString(16) + " -> " + r.status);
+        } catch (e) {
+          log("control send error:", e.name, e.message);
+        }
+      }
+      async function requestKeyframe() {
+        const now = performance.now();
+        if (now - lastKeyReq < 200) return;
+        lastKeyReq = now;
+        await sendCmd(CMD.KEYFRAME);
+      }
+
+      //------------------------------------------------------------- device name (mDNS)
+      const nameInput = document.getElementById("nameInput");
+      const nameInfo = document.getElementById("nameInfo");
+
+      // Read a vendor control-IN string (label or full hostname).
+      async function readVendorStr(request, cap = NAME_MAX_LEN + 8) {
+        const r = await dev.controlTransferIn(
+          {
+            requestType: "vendor",
+            recipient: "device",
+            request,
+            value: 0,
+            index: 0,
+          },
+          cap,
+        );
+        if (r.status !== "ok" || !r.data) return null;
+        return new TextDecoder().decode(r.data).replace(/\0+$/, "");
+      }
+
+      // Pull the current label into the input and show the full "<host>.local".
+      async function refreshName() {
+        if (!dev) {
+          log("name: not connected");
+          return;
+        }
+        try {
+          const label = await readVendorStr(NAMEREQ.GET);
+          const host = await readVendorStr(NAMEREQ.HOST);
+          if (label !== null) nameInput.value = label;
+          nameInfo.textContent = host ? host + ".local" : "(no name)";
+          log(
+            'name: label "' +
+              (label ?? "?") +
+              '", host ' +
+              (host ? host + ".local" : "?"),
+          );
+        } catch (e) {
+          log("name read error:", e.name, e.message);
+        }
+      }
+
+      async function setName() {
+        if (!dev) {
+          log("name: not connected");
+          return;
+        }
+        const label = nameInput.value.trim().slice(0, NAME_MAX_LEN);
+        try {
+          const bytes = new TextEncoder().encode(label);
+          const r = await dev.controlTransferOut(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: NAMEREQ.SET,
+              value: 0,
+              index: 0,
+            },
+            bytes,
+          );
+          log("name set -> " + r.status + " (" + bytes.length + " bytes)");
+          // The firmware sanitizes the label, so read it back to show the stored value
+          // and the resulting hostname (the mDNS rename takes effect within ~1 s).
+          await refreshName();
+        } catch (e) {
+          log("name set error:", e.name, e.message);
+        }
+      }
+
+      //------------------------------------------------------------- static IP (Ethernet)
+      const ipAddr = document.getElementById("ipAddr");
+      const ipMask = document.getElementById("ipMask");
+      const ipGw = document.getElementById("ipGw");
+      const ipInfo = document.getElementById("ipInfo");
+
+      // DHCP / Static IP 라디오. 세 칸에 무엇을 보여줄지도 여기서 갈린다:
+      //   DHCP   모드 → 지금 실제로 물려 있는 주소(읽기 전용, 회색)
+      //   Static 모드 → ① 편집 중이던 값 ② 없으면 장치에 저장된 고정 설정
+      //                 ③ 그것도 없으면(고정 IP를 한 번도 안 쓴 장치) 현재 주소로 시작
+      // ③ 이 있어야 "Static 을 눌렀더니 빈 칸" 이 안 된다. 대개 지금 주소를 그대로
+      // 고정하려는 것이므로 출발점으로도 맞다.
+      const ipModeDhcp = document.getElementById("ipModeDhcp");
+      const ipModeStatic = document.getElementById("ipModeStatic");
+      const ipFields = document.getElementById("ipFields");
+
+      let ipStored = []; // 장치에 저장된 고정 IP 설정 (빈 배열 = 없음)
+      let ipActive = []; // 지금 활성인 ip / mask / gw
+      let ipDraft = null; // Static 모드에서 편집 중이던 값(모드를 오가도 안 잃게)
+      let ipShownStatic = null; // 지금 칸에 그려져 있는 모드
+
+      function ipIsStatic() {
+        return ipModeStatic.checked;
+      }
+      function ipFieldsRead() {
+        return [ipAddr.value.trim(), ipMask.value.trim(), ipGw.value.trim()];
+      }
+      function ipModeSync() {
+        const on = ipIsStatic();
+        // Static → DHCP 로 넘어가는 순간, 편집 중이던 값을 기억해 둔다.
+        if (ipShownStatic === true && !on) ipDraft = ipFieldsRead();
+
+        let v;
+        if (!on) v = ipActive;
+        else if (ipDraft && ipDraft.some(Boolean)) v = ipDraft;
+        else if (ipStored.length) v = ipStored;
+        else v = ipActive;
+
+        ipAddr.value = v[0] || "";
+        ipMask.value = v[1] || "";
+        ipGw.value = v[2] || "";
+        ipFields.classList.toggle("off", !on);
+        for (const el of [ipAddr, ipMask, ipGw]) el.disabled = !on;
+        ipShownStatic = on;
+      }
+      ipModeDhcp.addEventListener("change", ipModeSync);
+      ipModeStatic.addEventListener("change", ipModeSync);
+      ipModeSync();
+
+      // Pull the stored config ("" = DHCP) into the three fields, and show the current
+      // ACTIVE address (DHCP-assigned or static) so system status is visible either way.
+      async function refreshStaticIp() {
+        if (!dev) {
+          log("staticip: not connected");
+          return;
+        }
+        try {
+          const r = await dev.controlTransferIn(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: IPREQ.GET,
+              value: 0,
+              index: 0,
+            },
+            STATICIP_MAX_LEN + 1,
+          );
+          if (r.status !== "ok" || !r.data) {
+            ipInfo.textContent = "(read failed)";
+            return;
+          }
+          const txt = new TextDecoder()
+            .decode(r.data)
+            .replace(/\0+$/, "")
+            .trim();
+          ipStored = txt.split(/\s+/).filter(Boolean);
+          ipDraft = null; // 장치가 권위 — 다시 읽었으면 편집 중이던 값은 버린다
+
+          // 지금 활성인 설정 "ip mask gw" (DHCP 모드에서도 채워진다).
+          const cur = (await readVendorStr(IPREQ.CUR, 64)) || ""; // "ip mask gw"
+          ipActive = cur.trim().split(/\s+/).filter(Boolean);
+
+          // 저장된 고정 설정이 없으면 DHCP 모드다.
+          (txt ? ipModeStatic : ipModeDhcp).checked = true;
+          ipModeSync(); // 모드에 맞는 값을 세 칸에 채운다
+
+          // 평소엔 비워 둔다 — 주소가 아직 없을 때만 이유를 알린다.
+          const noAddr = !ipActive[0] || ipActive[0] === "0.0.0.0";
+          ipInfo.textContent = noAddr
+            ? "no address yet — link down, or waiting for DHCP"
+            : "";
+          log("staticip: " + (txt || "DHCP") + ", active " + (cur || "?"));
+        } catch (e) {
+          log("staticip read error:", e.name, e.message);
+        }
+      }
+
+      // Send "<ip> <nm> <gw>" (or "" for DHCP). Pass cfg='' explicitly for the DHCP button.
+      async function setStaticIp(cfg) {
+        if (!dev) {
+          log("staticip: not connected");
+          return;
+        }
+        if (cfg === undefined)
+          cfg = [ipAddr.value.trim(), ipMask.value.trim(), ipGw.value.trim()]
+            .filter(Boolean)
+            .join(" ");
+        try {
+          const bytes = new TextEncoder().encode(
+            cfg.slice(0, STATICIP_MAX_LEN),
+          );
+          const r = await dev.controlTransferOut(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: IPREQ.SET,
+              value: 0,
+              index: 0,
+            },
+            bytes,
+          );
+          log("staticip set -> " + r.status + ' ("' + cfg + '")');
+          ipInfo.textContent = cfg
+            ? "applying " + cfg + " … reconnect to the new IP"
+            : "reverting to DHCP …";
+          // Firmware validates/sanitizes; read back after it applies (~1 s).
+          setTimeout(refreshStaticIp, 1300);
+        } catch (e) {
+          log("staticip set error:", e.name, e.message);
+        }
+      }
+
+      //------------------------------------------------------------- storage (SD / MSC)
+      const sdStat = document.getElementById("sdStat");
+
+      // VENDOR_REQUEST_STATUS (0x11): 1 byte, bit0 = SD currently mounted to the PC.
+      async function refreshSdStatus() {
+        if (!dev) {
+          sdStat.textContent = "not connected";
+          return;
+        }
+        try {
+          const r = await dev.controlTransferIn(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: REQ.STATUS,
+              value: 0,
+              index: 0,
+            },
+            1,
+          );
+          if (r.status !== "ok" || !r.data || !r.data.byteLength) {
+            sdStat.textContent = "(no status)";
+            return;
+          }
+          const mounted = (r.data.getUint8(0) & 1) !== 0;
+          // 평소 상태(장치가 카드를 쓴다)는 굳이 적지 않고, PC 가 물고 있을 때만 알린다.
+          sdStat.textContent = mounted ? "mounted on PC" : "";
+          sdStat.style.color = mounted ? "#fc9" : "";
+        } catch (e) {
+          log("sd status error:", e.name, e.message);
+        }
+      }
+      async function sdMount(mount) {
+        await sendCmd(mount ? CMD.SD_MOUNT : CMD.SD_UNMOUNT);
+        setTimeout(refreshSdStatus, 300); // let the device switch media, then re-read
+      }
+
+      // Refresh 버튼을 없앤 대신 주기적으로 상태를 확인한다. 버튼을 안 눌러도
+      // 바뀌는 경로가 있기 때문이다 — Windows 에서 "꺼내기"를 하면 장치가
+      // tud_msc_start_stop_cb 로 media=absent 가 되고, 그 변화는 폴링으로만 보인다.
+      // 1바이트 컨트롤 IN 이라 영상(벌크 IN)에는 부담이 없다.
+      setInterval(() => {
+        if (dev) ctrlQueue(refreshSdStatus);
+      }, 2000);
+
+      //------------------------------------------------------------- web password
+      const pwInput = document.getElementById("pwInput");
+
+      async function setPassword() {
+        if (!dev) {
+          log("pw: not connected");
+          return;
+        }
+        const pw = pwInput.value.slice(0, PW_MAX_LEN);
+        try {
+          const bytes = new TextEncoder().encode(pw);
+          const r = await dev.controlTransferOut(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: REQ.SET_PW,
+              value: 0,
+              index: 0,
+            },
+            bytes,
+          );
+          log("password set -> " + r.status + " (" + bytes.length + " chars)");
+        } catch (e) {
+          log("pw set error:", e.name, e.message);
+        }
+      }
+      async function getPassword() {
+        if (!dev) {
+          log("pw: not connected");
+          return;
+        }
+        try {
+          const r = await dev.controlTransferIn(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: REQ.GET_PW,
+              value: 0,
+              index: 0,
+            },
+            PW_MAX_LEN + 1,
+          );
+          if (r.status !== "ok" || !r.data) {
+            log("pw: read failed");
+            return;
+          }
+          const pw = new TextDecoder().decode(r.data).replace(/\0+$/, "");
+          pwInput.value = pw;
+          log("password loaded (" + pw.length + " chars)");
+        } catch (e) {
+          log("pw get error:", e.name, e.message);
+        }
+      }
+
+      //------------------------------------------------------------- connect
+      async function connect() {
+        try {
+          dev = await navigator.usb.requestDevice({ filters: [] });
+        } catch (e) {
+          log("no device selected");
+          return;
+        }
+        await dev.open();
+        if (dev.configuration === null) await dev.selectConfiguration(1);
+
+        // Pick the VENDOR interface (class 0xFF). The device is now a CDC+vendor
+        // composite (CDC just makes Windows auto-bind WinUSB); the CDC data interface
+        // also has bulk endpoints, so filter by class to avoid grabbing it.
+        epIn = 0;
+        epOut = 0;
+        for (const itf of dev.configuration.interfaces) {
+          for (const alt of itf.alternates) {
+            if (alt.interfaceClass !== 0xff) continue; // vendor only
+            const inEp = alt.endpoints.find(
+              (e) => e.direction === "in" && e.type === "bulk",
+            );
+            const outEp = alt.endpoints.find(
+              (e) => e.direction === "out" && e.type === "bulk",
+            );
+            if (inEp) {
+              itfNum = itf.interfaceNumber;
+              epIn = inEp.endpointNumber;
+              epOut = outEp ? outEp.endpointNumber : 0;
+              break;
+            }
+          }
+          if (epIn) break;
+        }
+        if (!epIn) {
+          log("no bulk IN endpoint found");
+          return;
+        }
+        await dev.claimInterface(itfNum);
+        log(
+          `connected: itf ${itfNum}, bulk IN ep ${epIn}${epOut ? ", OUT ep " + epOut : " (no OUT ep)"}`,
+        );
+        stat.textContent = "connected";
+        otaSend.disabled = !otaData; // 파일을 먼저 골라 두었으면 바로 올릴 수 있게
+
+        makeDecoder();
+        running = true;
+        requestKeyframe();
+        readLoop();
+        // 조회는 하나씩 차례로(위 ctrlQueue 주석 참고).
+        for (const fn of [
+          refreshDevInfo,   // 장치 이름/리비전/빌드시각 + 설치 장소
+          refreshOrient,    // 영상 방향
+          refreshName,      // 장치 이름 + mDNS 호스트
+          refreshStaticIp,  // IP 설정(저장값 + 현재 주소)
+          refreshModel,     // AI 모델 이름
+          refreshProfile,   // 프로필 텍스트 + 슬라이더 위치
+          refreshSdStatus,  // SD 가 PC 에 붙어 있는지
+          refreshRecStatus, // 녹화/재생 상태
+          refreshRecList,   // 클립 목록
+          refreshWifi,      // Wi-Fi 상태
+          refreshOtaInfo,   // 마지막 펌웨어 업데이트 기록
+        ]) {
+          await ctrlQueue(fn);
+        }
+      }
+      async function disconnect() {
+        running = false;
+        if (dev) {
+          try {
+            await dev.releaseInterface(itfNum);
+          } catch (e) {}
+          try {
+            await dev.close();
+          } catch (e) {}
+          dev = null;
+        }
+        if (decoder) {
+          try {
+            decoder.close();
+          } catch (e) {}
+          decoder = null;
+        }
+        stat.textContent = "idle";
+        otaSend.disabled = true;
+        otaReboot.disabled = true;
+        log("disconnected");
+      }
+
+      //------------------------------------------------------------- stream reassembly
+      let acc = new Uint8Array(0);
+      function append(buf) {
+        const n = new Uint8Array(acc.length + buf.length);
+        n.set(acc, 0);
+        n.set(buf, acc.length);
+        acc = n;
+      }
+      const HDR = 16;
+      function parse() {
+        while (acc.length >= HDR) {
+          if (
+            !(
+              acc[0] === 0x55 &&
+              acc[1] === 0x53 &&
+              acc[2] === 0x42 &&
+              acc[3] === 0x56
+            )
+          ) {
+            acc = acc.subarray(1);
+            continue;
+          }
+          const fmt = acc[8],
+            key = acc[9] === 1;
+          const len =
+            acc[12] | (acc[13] << 8) | (acc[14] << 16) | (acc[15] << 24);
+          if (acc.length < HDR + len) return;
+          const payload = acc.slice(HDR, HDR + len);
+          acc = acc.subarray(HDR + len);
+          if (fmt === 2) feed(payload, key);
+        }
+      }
+      function feed(data, key) {
+        if (!decoder || decoder.state !== "configured") return;
+        if (!started) {
+          if (!key) return;
+          started = true;
+          stat.textContent = "streaming…";
+        }
+        if (decoder.decodeQueueSize > 8) {
+          started = false;
+          requestKeyframe();
+          return;
+        }
+        try {
+          decoder.decode(
+            new EncodedVideoChunk({
+              type: key ? "key" : "delta",
+              timestamp: ts,
+              data,
+            }),
+          );
+          ts += 33333;
+        } catch (e) {
+          log("decode threw:", e.message);
+          recover();
+        }
+      }
+      async function readLoop() {
+        let errs = 0;
+        while (running && dev) {
+          let r;
+          try {
+            r = await dev.transferIn(epIn, 64 * 1024);
+          } catch (e) {
+            if (!running) break;
+            log("transferIn error:", e.name, e.message);
+            if (++errs > 50) break;
+            await new Promise((res) => setTimeout(res, 20));
+            continue;
+          }
+          if (r.status !== "ok") {
+            if (r.status === "stall") {
+              try {
+                await dev.clearHalt("in", epIn);
+              } catch (e) {}
+            }
+            if (++errs > 50) break;
+            continue;
+          }
+          errs = 0;
+          try {
+            if (r.data && r.data.byteLength) {
+              append(new Uint8Array(r.data.buffer));
+              parse();
+            }
+          } catch (e) {
+            log("parse error:", e.message);
+            recover();
+          }
+        }
+        log("readLoop ended");
+      }
+
+      //------------------------------------------------------------- wiring
+      document.getElementById("conn").onclick = () =>
+        connect().catch((e) => log("connect error:", e.message));
+      document.getElementById("disc").onclick = () => disconnect();
+
+      // AI model info (GET 0x1A → key=value 줄들). 읽기 전용: 모델은 펌웨어에 심겨 있어
+      // 바꿀 대상이 아니고, 가중치는 "정말 구워졌는지"를 CRC 로 확인만 한다.
+      async function refreshModel() {
+        if (!dev) {
+          log("model: not connected");
+          return;
+        }
+        try {
+          const r = await dev.controlTransferIn(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: MODELREQ.GET,
+              value: 0,
+              index: 0,
+            },
+            MODEL_INFO_MAX,
+          );
+          if (r.status !== "ok" || !r.data) return;
+
+          const kv = {};
+          for (const line of new TextDecoder().decode(r.data).split(/\r?\n/)) {
+            const i = line.indexOf("=");
+            if (i > 0) kv[line.slice(0, i)] = line.slice(i + 1);
+          }
+
+          document.getElementById("mName").textContent = kv.name || "?";
+          document.getElementById("mShape").textContent =
+            "input " +
+            (kv.input || "?") +
+            "  ·  classes: " +
+            (kv.classes || "?");
+
+          // weights=<addr>,<len>,<crc>,<state>   state: ok | blank | pending
+          const w = (kv.weights || "").split(",");
+          const el = document.getElementById("mWeights");
+          if (w.length === 4) {
+            const bytes = parseInt(w[1], 10).toLocaleString();
+            el.textContent =
+              "weights @" +
+              w[0] +
+              "  " +
+              bytes +
+              " Bytes  crc " +
+              w[2] +
+              (w[3] === "ok" ? "" : "  \u2014 " + w[3].toUpperCase());
+            // 지워진 플래시(전부 0xFF)면 추론이 쓰레기값이다 — 눈에 띄게.
+            el.style.color = w[3] === "ok" ? "" : "var(--danger)";
+          } else {
+            el.textContent = "—";
+            el.style.color = "";
+          }
+          log(
+            "model: " + (kv.name || "?") + " / weights " + (kv.weights || "?"),
+          );
+        } catch (e) {
+          log("model read error:", e.name, e.message);
+        }
+      }
+      // AI profile 읽기 전용(GET 0x1C). 값 변경은 Tuning 컨트롤 바(0x1D) 또는 CLI.
+      async function refreshProfile() {
+        if (!dev) {
+          log("profile: not connected");
+          return;
+        }
+        try {
+          const r = await dev.controlTransferIn(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: PROFREQ.GET,
+              value: 0,
+              index: 0,
+            },
+            AIPROF_TEXT_MAX,
+          );
+          if (r.status === "ok" && r.data) {
+            const txt = new TextDecoder().decode(r.data);
+            document.getElementById("pfText").value = txt;
+            tuneSync(txt); // 컨트롤 바 위치도 장치 값으로
+            log("profile: read " + txt.length + " bytes");
+          }
+        } catch (e) {
+          log("profile read error:", e.name, e.message);
+        }
+      }
+      document.getElementById("nameSet").onclick = () => setName();
+      document.getElementById("nameGet").onclick = () => refreshName();
+      nameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") setName();
+      });
+      document.getElementById("ipSet").onclick = () =>
+        setStaticIp(ipIsStatic() ? undefined : "");
+      document.getElementById("ipGet").onclick = () => refreshStaticIp();
+      ipGw.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") setStaticIp();
+      });
+      document.getElementById("sdMount").onclick = () => sdMount(true);
+      document.getElementById("sdUnmount").onclick = () => sdMount(false);
+      document.getElementById("pwSet").onclick = () => setPassword();
+      document.getElementById("pwGet").onclick = () => getPassword();
+      document.getElementById("pwShow").onchange = (e) => {
+        pwInput.type = e.target.checked ? "text" : "password";
+      };
+      pwInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") setPassword();
+      });
+      //------------------------------------------------------------- tuning sliders
+      // 검출 품질 파라미터를 컨트롤 바로 조절한다. 프로필 전체(0x1B)가 아니라 키 하나만
+      // 밀기 때문에(0x1D) 드래그 중에도 가볍고, Profile 패널의 textarea 편집과 안 싸운다.
+      //   pct:true  → 프로필은 "0.45"(0~1) 로 보관, 슬라이더는 정수 %(45) 를 다룬다.
+      // def = 펌웨어 공장 기본값(aiprof.c 의 defaults()). 값이 바뀌면 여기도 같이 고칠 것.
+      const TUNE = [
+        { key: "det.conf", s: "sDetConf", v: "vDetConf", pct: true, def: 30 },
+        { key: "trk.det", s: "sTrkDet", v: "vTrkDet", pct: true, def: 80 },
+        {
+          key: "run.period",
+          s: "sRunPeriod",
+          v: "vRunPeriod",
+          pct: false,
+          def: 10,
+        },
+        {
+          key: "trk.tlost",
+          s: "sTrkTlost",
+          v: "vTrkTlost",
+          pct: false,
+          def: 30,
+        },
+        {
+          key: "trk.track",
+          s: "sTrkTrack",
+          v: "vTrkTrack",
+          pct: true,
+          def: 25,
+        },
+      ];
+
+      // 프로필 텍스트에서 키 하나의 값을 읽어 슬라이더 눈금(정수)으로 바꾼다.
+      // 정규식 대신 줄 단위로 자른다 — "det.conf" 의 점을 이스케이프할 일도 없고,
+      // 주석 줄("# model = ...")은 키 이름이 안 맞아 자연히 걸러진다.
+      function tuneParse(txt, t) {
+        for (const line of txt.split(/\r?\n/)) {
+          const i = line.indexOf("=");
+          if (i < 0) continue;
+          if (line.slice(0, i).trim() !== t.key) continue;
+          const f = parseFloat(line.slice(i + 1));
+          if (!isFinite(f)) return null;
+          return t.pct ? Math.round(f <= 1 ? f * 100 : f) : Math.round(f);
+        }
+        return null;
+      }
+      function tuneShow(t, n) {
+        document.getElementById(t.v).textContent = t.pct
+          ? (n / 100).toFixed(2)
+          : String(n);
+      }
+
+      // 장치가 준 프로필 텍스트로 모든 슬라이더 위치를 맞춘다(연결 직후 / 프로필 재적용 후).
+      function tuneSync(txt) {
+        for (const t of TUNE) {
+          const n = tuneParse(txt, t);
+          if (n === null) continue;
+          const el = document.getElementById(t.s);
+          el.value = String(n);
+          tuneShow(t, n);
+        }
+      }
+
+      // 전송은 키별 debounce(200ms) + 전역 직렬화. 드래그 중 컨트롤 전송이 겹치면
+      // WebUSB 가 에러를 내므로, 마지막 값만 순서대로 하나씩 보낸다.
+      const tuneTimers = {};
+      let tuneRefreshTimer = 0;
+      function tuneSend(t, n) {
+        clearTimeout(tuneTimers[t.key]);
+        tuneTimers[t.key] = setTimeout(() => {
+          const val = t.pct ? (n / 100).toFixed(2) : String(n);
+          ctrlQueue(async () => {
+            if (!dev) {
+              log("tune: not connected");
+              return;
+            }
+            try {
+              const data = new TextEncoder().encode(t.key + "=" + val);
+              const r = await dev.controlTransferOut(
+                {
+                  requestType: "vendor",
+                  recipient: "device",
+                  request: PROFREQ.SET_KV,
+                  value: 0,
+                  index: 0,
+                },
+                data,
+              );
+              log("tune: " + t.key + " = " + val + " -> " + r.status);
+            } catch (e) {
+              log("tune write error:", e.name, e.message);
+            }
+          });
+        }, 200);
+      }
+
+      // 슬라이더 하나를 값 n 으로 맞추고 장치에 반영한다(드래그와 Default 버튼 공용).
+      function tuneApply(t, n) {
+        document.getElementById(t.s).value = String(n);
+        tuneShow(t, n);
+        tuneSend(t, n); // 실제 전송은 debounce 후
+        // 손을 뗀 뒤(0.6초 무입력) 장치에서 프로필을 다시 읽는다. Profile 패널의
+        // textarea 가 낡은 값을 들고 있다가 Apply 로 슬라이더 변경을 되돌리는 사고 방지.
+        clearTimeout(tuneRefreshTimer);
+        tuneRefreshTimer = setTimeout(() => {
+          refreshProfile();
+        }, 600);
+      }
+
+      for (const t of TUNE) {
+        const el = document.getElementById(t.s);
+        el.addEventListener("input", () =>
+          tuneApply(t, parseInt(el.value, 10)),
+        );
+      }
+
+      // Default: 이 패널이 다루는 5개만 공장값으로 되돌린다. 프로필의 나머지(이름·라벨·
+      // det.iou/det.max/det.classes)는 건드리지 않는다 — 전체 초기화는 CLI `aiprof reset`.
+      document.getElementById("tuneDefault").onclick = () => {
+        for (const t of TUNE) tuneApply(t, t.def);
+        log("tune: 5 keys reset to firmware defaults");
+      };
+
+      //------------------------------------------------------------- recordings
+      // 녹화 제어·목록·삭제는 작은 컨트롤 전송으로 하고, 재생은 파일을 내려받지
+      // 않는다: 장치가 영상 벌크 IN 의 소스를 라이브 → 클립으로 바꿔주므로
+      // (play_app.h) 지금 쓰는 디코더/캔버스가 그대로 녹화 화면을 그린다.
+      const recStat = document.getElementById("recStat");
+      const recList = document.getElementById("recList");
+      const vidBadge = document.getElementById("vidBadge");
+      const playBar = document.getElementById("playBar");
+      const playBarFill = document.getElementById("playBarFill");
+      let recActive = false;
+      let sdOwnedByPc = false; // 카드를 PC 가 물고 있는가(sd=pc)
+      let playingName = ""; // 재생 중인 클립 ("" = 라이브)
+
+      // 0x1E: "rec=1 name=CLIP0003.mp4 frames=120 kb=980 play=- pframes=0 ppct=0"
+      async function refreshRecStatus() {
+        if (!dev) return;
+        try {
+          const r = await dev.controlTransferIn(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: RECREQ.STATUS,
+              value: 0,
+              index: 0,
+            },
+            192,
+          );
+          if (r.status !== "ok" || !r.data) return;
+          const kv = {};
+          for (const tok of new TextDecoder()
+            .decode(r.data)
+            .trim()
+            .split(/\s+/)) {
+            const i = tok.indexOf("=");
+            if (i > 0) kv[tok.slice(0, i)] = tok.slice(i + 1);
+          }
+
+          recActive = kv.rec === "1";
+          sdOwnedByPc = kv.sd === "pc";   // 카드를 PC 가 물고 있으면 목록이 빈다
+          const wasPlaying = playingName;
+          playingName = kv.play && kv.play !== "-" ? kv.play : "";
+
+          // 영상 위 배지: 지금 무엇을 보고 있는지(라이브 / 어느 클립)를 화면에서 바로 알게.
+          vidBadge.textContent = playingName || "Live";
+          vidBadge.classList.toggle("playing", !!playingName);
+          playBar.hidden = !playingName;
+          playBarFill.style.width = (playingName ? kv.ppct || 0 : 0) + "%";
+
+          document.getElementById("recToggle").textContent = recActive
+            ? "■ STOP"
+            : "● REC";
+
+          if (playingName) {
+            recStat.textContent =
+              "playing " + playingName + "  " + (kv.ppct || 0) + "%";
+            recStat.style.color = "var(--accent)";
+          } else if (recActive) {
+            const mb = ((parseInt(kv.kb, 10) || 0) / 1024).toFixed(1);
+            recStat.textContent =
+              "recording " +
+              kv.name +
+              "  " +
+              kv.frames +
+              " frames, " +
+              mb +
+              " MB";
+            recStat.style.color = "#fc9";
+          } else {
+            recStat.textContent = "";
+            recStat.style.color = "";
+          }
+
+          // 재생이 끝나 라이브로 돌아오면 디코더를 새로 맞춘다(스트림이 바뀐 지점).
+          if (wasPlaying && !playingName) {
+            makeDecoder();
+            requestKeyframe();
+          }
+          if (!wasPlaying && playingName) makeDecoder(); // 클립의 첫 IDR 부터
+        } catch (e) {
+          log("rec status error:", e.name, e.message);
+        }
+      }
+
+      // 0x1F: "CLIP0001.mp4 123456\nCLIP0002.mp4 98765\n"
+      async function refreshRecList() {
+        if (!dev) return;
+        try {
+          const r = await dev.controlTransferIn(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: RECREQ.LIST,
+              value: 0,
+              index: 0,
+            },
+            REC_LIST_MAX,
+          );
+          if (r.status !== "ok" || !r.data) return;
+          const files = new TextDecoder()
+            .decode(r.data)
+            .split(/\r?\n/)
+            .filter(Boolean)
+            .map((l) => {
+              const sp = l.lastIndexOf(" ");
+              return {
+                n: l.slice(0, sp),
+                s: parseInt(l.slice(sp + 1), 10) || 0,
+              };
+            });
+
+          recList.innerHTML = "";
+          for (const f of files) {
+            const li = document.createElement("li");
+            if (f.n === playingName) li.className = "playing";
+
+            const nm = document.createElement("span");
+            nm.className = "fname";
+            nm.textContent = f.n;
+
+            const sz = document.createElement("span");
+            sz.className = "fsz";
+            sz.textContent = (f.s / 1048576).toFixed(1) + " MB";
+
+            const pb = document.createElement("button");
+            pb.className = "iconbtn";
+            pb.textContent = "▶";
+            pb.title = "이 클립을 영상 화면에 재생";
+            pb.onclick = () => playClip(f.n);
+
+            const db = document.createElement("button");
+            db.className = "iconbtn danger";
+            db.textContent = "✕";
+            db.title = "삭제";
+            db.onclick = () => deleteClip(f.n);
+
+            li.append(nm, sz, pb, db);
+            recList.append(li);
+          }
+          if (!files.length) {
+            const li = document.createElement("li");
+            li.textContent = sdOwnedByPc
+              ? "(SD is mounted on the PC)"
+              : "(no clips)";
+            recList.append(li);
+          }
+        } catch (e) {
+          log("rec list error:", e.name, e.message);
+        }
+      }
+
+      // 클립 이름을 실어 보내는 컨트롤 OUT (0x20 재생 / 0x21 삭제).
+      async function sendClipName(request, name) {
+        if (!dev) {
+          log("rec: not connected");
+          return;
+        }
+        try {
+          const data = new TextEncoder().encode(name);
+          const r = await dev.controlTransferOut(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request,
+              value: 0,
+              index: 0,
+            },
+            data,
+          );
+          log("rec: " + name + " -> " + r.status);
+        } catch (e) {
+          log("rec write error:", e.name, e.message);
+        }
+      }
+
+      async function playClip(name) {
+        await sendClipName(RECREQ.PLAY, name);
+        setTimeout(() => {
+          refreshRecStatus();
+          refreshRecList();
+        }, 300);
+      }
+      async function deleteClip(name) {
+        if (!confirm("Delete " + name + "?")) return;
+        await sendClipName(RECREQ.DELETE, name);
+        setTimeout(refreshRecList, 1200); // 삭제는 rec_task 가 유휴 틱에 처리
+      }
+
+      document.getElementById("recToggle").onclick = async () => {
+        await sendCmd(recActive ? CMD.REC_STOP : CMD.REC_START);
+        setTimeout(() => {
+          refreshRecStatus();
+          refreshRecList();
+        }, 400);
+      };
+
+      // 상태는 주기적으로(장치 쪽에서 끝나는 일이 있다: 클립 끝, 용량 롤오버).
+      setInterval(() => {
+        if (dev) ctrlQueue(refreshRecStatus);
+      }, 1000);
+      setInterval(() => {
+        if (dev) ctrlQueue(refreshRecList);
+      }, 5000);
+
+      //------------------------------------------------------------- device info
+      // 이름·펌웨어 리비전·빌드 시각은 펌웨어 상수(main.h)라 0x22 로 읽기만 한다.
+      // 설치 장소(Device Location)는 사용자가 적는 값이라 0x23/0x24 로 저장·조회한다.
+      const locInput = document.getElementById("locInput");
+
+      async function refreshDevInfo() {
+        if (!dev) {
+          log("devinfo: not connected");
+          return;
+        }
+        try {
+          const txt = (await readVendorStr(DEVREQ.INFO, 160)) || "";
+          const kv = {};
+          for (const line of txt.split(/\r?\n/)) {
+            const i = line.indexOf("=");
+            if (i > 0) kv[line.slice(0, i)] = line.slice(i + 1);
+          }
+          document.getElementById("devName").textContent = kv.name || "?";
+          document.getElementById("devFw").textContent =
+            "rev " + (kv.fw || "?");
+          document.getElementById("devBuilt").textContent =
+            "built " + (kv.built || "?");
+
+          const loc =
+            (await readVendorStr(DEVREQ.GET_LOC, LOCATION_MAX_LEN + 1)) || "";
+          locInput.value = loc;
+          log(
+            "devinfo: " +
+              (kv.name || "?") +
+              " " +
+              (kv.fw || "?") +
+              ', loc "' +
+              loc +
+              '"',
+          );
+        } catch (e) {
+          log("devinfo read error:", e.name, e.message);
+        }
+      }
+
+      async function setLocation() {
+        if (!dev) {
+          log("location: not connected");
+          return;
+        }
+        const text = locInput.value.trim().slice(0, LOCATION_MAX_LEN);
+        try {
+          const data = new TextEncoder().encode(text);
+          const r = await dev.controlTransferOut(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: DEVREQ.SET_LOC,
+              value: 0,
+              index: 0,
+            },
+            data,
+          );
+          log("location set -> " + r.status + ' ("' + text + '")');
+          setTimeout(refreshDevInfo, 300); // 장치가 다듬은 값을 되읽는다
+        } catch (e) {
+          log("location write error:", e.name, e.message);
+        }
+      }
+
+      //------------------------------------------------------------- camera orientation
+      // 라디오를 고르면 바로 장치에 보낸다(0x29, wValue = 방향). 장치는 센서를 잠깐 대기 상태로
+      // 바꿔 반전 레지스터를 쓰고 다시 스트리밍하므로, 영상이 한두 프레임 끊긴 뒤 새 방향으로 나온다.
+      const orientInfo = document.getElementById("orientInfo");
+
+      function orientShow(v) {
+        for (const r of document.querySelectorAll('input[name="orient"]'))
+          r.checked = Number(r.value) === v;
+        orientInfo.textContent = ORIENT_NAMES[v] || "?";
+      }
+
+      async function refreshOrient() {
+        if (!dev) {
+          log("orient: not connected");
+          return;
+        }
+        try {
+          const r = await dev.controlTransferIn(
+            { requestType: "vendor", recipient: "device", request: ORIENTREQ.GET, value: 0, index: 0 },
+            1,
+          );
+          if (r.status !== "ok" || !r.data || r.data.byteLength < 1) {
+            orientInfo.textContent = "(not supported by firmware)";
+            return;
+          }
+          const v = r.data.getUint8(0);
+          orientShow(v);
+          log("orient: " + (ORIENT_NAMES[v] || v));
+        } catch (e) {
+          log("orient read error:", e.name, e.message);
+        }
+      }
+
+      async function setOrient(v) {
+        if (!dev) {
+          log("orient: not connected");
+          return;
+        }
+        try {
+          const r = await dev.controlTransferOut({
+            requestType: "vendor",
+            recipient: "device",
+            request: ORIENTREQ.SET,
+            value: v,
+            index: 0,
+          });
+          log("orient set -> " + r.status + " (" + (ORIENT_NAMES[v] || v) + ")");
+          // 장치가 센서에 적용하는 데 ~100 ms 걸린다. 적용된 값을 되읽어 표시한다.
+          setTimeout(() => ctrlQueue(refreshOrient), 400);
+        } catch (e) {
+          log("orient write error:", e.name, e.message);
+        }
+      }
+
+      for (const r of document.querySelectorAll('input[name="orient"]')) {
+        r.addEventListener("change", () => {
+          if (r.checked) ctrlQueue(() => setOrient(Number(r.value)));
+        });
+      }
+
+      //------------------------------------------------------------- firmware download (OTA)
+      // .ota(64 B 헤더 + 이미지, Tools/make_ota.py)를 4 KB 조각으로 보내 SD 0:/OTA/ 에 저장한다(ota_app.c).
+      // 장치는 조각마다 SD 에 쓰고 끝나면 헤더·CRC 를 다시 검사한 뒤 확정한다. 설치는 재부팅 후 부트로더가 한다.
+      // 0x2B BEGIN "이름\n크기" / 0x2C DATA(wValue=순번) / 0x2D END(0 확정, 1 취소) / 0x2E STATUS(텍스트)
+      // 0x2F INFO: 마지막 OTA 기록(last/date/ver/file) + OTA 비밀번호 설정 여부(pw=set|unset)
+      const OTAREQ = { BEGIN: 0x2b, DATA: 0x2c, END: 0x2d, STATUS: 0x2e, INFO: 0x2f };
+      const otaPw = document.getElementById("otaPw");
+      const otaLast = document.getElementById("otaLast");
+
+      async function refreshOtaInfo() {
+        if (!dev) return;
+        try {
+          const t = (await readVendorStr(OTAREQ.INFO, 256)) || "";
+          const kv = {};
+          for (const line of t.split(/\r?\n/)) {
+            const i = line.indexOf("=");
+            if (i > 0) kv[line.slice(0, i)] = line.slice(i + 1);
+          }
+          otaLast.textContent = kv.last
+            ? "Last update: " + kv.last + ", " + kv.date + ', ver "' + kv.ver + '" (' + kv.file + ")"
+            : "Last update: (none)";
+          if (kv.pw === "unset") otaLast.textContent += " — OTA password not set (disabled)";
+          log("ota info: " + t.replace(/\n/g, " "));
+        } catch (e) {
+          log("ota info read error:", e.name, e.message);
+        }
+      }
+      function localStamp() {
+        const d = new Date(),
+          p = (n) => String(n).padStart(2, "0");
+        return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+      }
+      const OTA_CHUNK = 4096; // ota_app.h OTA_CHUNK_MAX
+      const OTA_MAGIC = 0x5055364e; // 'N6UP' (부트로더 ota.h)
+      const OTA_APP_MIN = 0x70080000; // 부트로더 영역 위
+      const otaFile = document.getElementById("otaFile");
+      const otaInfo = document.getElementById("otaInfo");
+      const otaProg = document.getElementById("otaProg");
+      const otaStat = document.getElementById("otaStat");
+      const otaSend = document.getElementById("otaSend");
+      const otaReboot = document.getElementById("otaReboot");
+      let otaData = null; // 검사를 통과한 파일 내용
+      let otaBusy = false;
+
+      const crcTable = (() => {
+        const t = new Uint32Array(256);
+        for (let n = 0; n < 256; n++) {
+          let c = n;
+          for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+          t[n] = c >>> 0;
+        }
+        return t;
+      })();
+      function crc32(u8) {
+        let c = 0xffffffff;
+        for (let i = 0; i < u8.length; i++) c = crcTable[(c ^ u8[i]) & 0xff] ^ (c >>> 8);
+        return (c ^ 0xffffffff) >>> 0;
+      }
+      const hex8 = (v) => "0x" + (v >>> 0).toString(16).toUpperCase().padStart(8, "0");
+
+      // 부트로더(ota.c hdr_check)와 같은 검사를 먼저 브라우저에서 한다.
+      function otaParse(u8) {
+        if (u8.length <= 64) return { err: "file too small" };
+        const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+        const magic = dv.getUint32(0, true),
+          hver = dv.getUint32(4, true),
+          dest = dv.getUint32(8, true),
+          size = dv.getUint32(12, true),
+          icrc = dv.getUint32(16, true),
+          hcrc = dv.getUint32(60, true);
+        if (magic !== OTA_MAGIC) return { err: "not an .ota file (bad magic)" };
+        if (hver !== 1) return { err: "unsupported header version " + hver };
+        if (crc32(u8.subarray(0, 60)) !== hcrc) return { err: "header CRC mismatch" };
+        if (size + 64 !== u8.length) return { err: "size mismatch (header " + size + ", file " + (u8.length - 64) + ")" };
+        if (dest < OTA_APP_MIN || dest % 4096) return { err: "bad destination " + hex8(dest) };
+        if (crc32(u8.subarray(64)) !== icrc) return { err: "image CRC mismatch (file damaged)" };
+        const ver = new TextDecoder().decode(u8.subarray(24, 56)).replace(/\0.*$/, "");
+        return { ver, dest, size, icrc };
+      }
+
+      otaFile.addEventListener("change", async () => {
+        otaData = null;
+        otaSend.disabled = true;
+        otaProg.value = 0;
+        otaStat.textContent = "—";
+        const f = otaFile.files && otaFile.files[0];
+        if (!f) {
+          otaInfo.textContent = "—";
+          return;
+        }
+        const u8 = new Uint8Array(await f.arrayBuffer());
+        const h = otaParse(u8);
+        if (h.err) {
+          otaInfo.textContent = f.name + ": " + h.err;
+          log("ota: " + f.name + " rejected - " + h.err);
+          return;
+        }
+        otaData = u8;
+        otaInfo.textContent =
+          'ver "' + h.ver + '", ' + (h.size / 1024).toFixed(1) + " KB -> " + hex8(h.dest) + ", CRC " + hex8(h.icrc) + " OK";
+        otaSend.disabled = !dev;
+        log("ota: " + f.name + " ok, " + otaInfo.textContent);
+      });
+
+      // 0x2E 응답 "state=ready written=W total=T recv=R free=F msg=..." → 객체
+      // written = SD 에 쓴 양, recv = 장치가 받은 양, free = 장치 링 버퍼 빈 칸(4 KB 단위)
+      async function otaStatus() {
+        const t = (await readVendorStr(OTAREQ.STATUS, 256)) || "";
+        const i = t.indexOf(" msg=");
+        const head = i >= 0 ? t.slice(0, i) : t;
+        const s = { state: "?", written: 0, total: 0, recv: 0, free: 0, msg: i >= 0 ? t.slice(i + 5) : t };
+        for (const kv of head.split(" ")) {
+          const j = kv.indexOf("=");
+          if (j > 0) s[kv.slice(0, j)] = j ? (isNaN(kv.slice(j + 1)) ? kv.slice(j + 1) : Number(kv.slice(j + 1))) : "";
+        }
+        return s;
+      }
+      // 장치가 조건을 만족할 때까지(또는 error) 상태를 읽는다
+      async function otaWait(ok, timeoutMs) {
+        const t0 = performance.now();
+        for (;;) {
+          const s = await otaStatus();
+          if (s.state === "error" || ok(s)) return s;
+          if (performance.now() - t0 > timeoutMs) return { state: "timeout", msg: "device did not respond (" + s.state + ")" };
+          await new Promise((r) => setTimeout(r, 3));
+        }
+      }
+
+      async function otaUpload() {
+        if (!dev || !otaData || otaBusy) return;
+        const name = (otaFile.files[0] && otaFile.files[0].name) || "update.ota";
+        const total = otaData.length;
+        otaBusy = true;
+        otaSend.disabled = true;
+        otaReboot.disabled = true;
+        otaProg.value = 0;
+        // 업로드 전체를 한 번에 큐에 넣는다 — 그동안 다른 폴링은 기다린다(수 초).
+        await ctrlQueue(async () => {
+          const vreq = (request, value) => ({ requestType: "vendor", recipient: "device", request, value, index: 0 });
+          try {
+            otaStat.textContent = "starting...";
+            // "이름\n크기\n날짜\n비밀번호" — 날짜는 이 PC 의 현지 시각(장치에 시계가 없다), 비밀번호는 생산자 OTA 비밀번호
+            await dev.controlTransferOut(
+              vreq(OTAREQ.BEGIN, 0),
+              new TextEncoder().encode(name + "\n" + total + "\n" + localStamp() + "\n" + otaPw.value),
+            );
+            let s = await otaWait((s) => s.state === "ready", 5000);
+            if (s.state !== "ready") throw new Error(s.msg);
+
+            const t0 = performance.now();
+            let sent = 0;
+            let free = s.free || 0; // 장치 링 버퍼 빈 칸 — 0 이 될 때만 상태를 다시 읽는다(조회 횟수 최소화)
+            for (let seq = 0; sent < total; seq++) {
+              if (free <= 0) {
+                s = await otaWait((s) => s.state === "ready" && s.free > 0, 10000);
+                if (s.state !== "ready") throw new Error(s.msg);
+                free = s.free;
+              }
+              const chunk = otaData.subarray(sent, Math.min(sent + OTA_CHUNK, total));
+              const r = await dev.controlTransferOut(vreq(OTAREQ.DATA, seq & 0xffff), chunk);
+              if (r.status !== "ok") throw new Error("chunk " + seq + " " + r.status);
+              sent += chunk.length;
+              free--;
+              otaProg.value = Math.round((sent * 100) / total);
+              const kbs = sent / 1024 / Math.max(0.001, (performance.now() - t0) / 1000);
+              otaStat.textContent = (sent / 1024).toFixed(0) + " / " + (total / 1024).toFixed(0) + " KB  (" + kbs.toFixed(0) + " KB/s)";
+            }
+
+            otaStat.textContent = "verifying on device...";
+            await dev.controlTransferOut(vreq(OTAREQ.END, 0));
+            s = await otaWait((s) => s.state === "done", 60000); // 남은 링을 SD 에 쓰고 다시 읽어 CRC 검사
+            if (s.state !== "done") throw new Error(s.msg);
+            otaStat.textContent = s.msg;
+            otaReboot.disabled = false;
+            log("ota: " + s.msg);
+            await refreshOtaInfo(); // "pending" 기록이 생겼다
+          } catch (e) {
+            otaStat.textContent = "FAILED: " + (e.message || e);
+            log("ota upload error:", e.name || "", e.message || e);
+            try {
+              await dev.controlTransferOut(vreq(OTAREQ.END, 1)); // 취소 → .part 삭제
+            } catch (e2) {}
+          }
+        });
+        otaBusy = false;
+        otaSend.disabled = !(dev && otaData);
+      }
+
+      async function otaRebootInstall() {
+        if (!dev) return;
+        if (!confirm("Reboot the device now? The bootloader installs the update, then the camera restarts.")) return;
+        otaReboot.disabled = true;
+        otaStat.textContent = "rebooting - the bootloader installs the update. Reconnect in ~15 s.";
+        log("ota: reboot requested");
+        await sendCmd(CMD.REBOOT);
+      }
+
+      otaSend.onclick = () => otaUpload();
+      otaReboot.onclick = () => otaRebootInstall();
+
+      document.getElementById("locSet").onclick = () => setLocation();
+      document.getElementById("locGet").onclick = () => refreshDevInfo();
+      locInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") setLocation();
+      });
+
+      //------------------------------------------------------------- log 접기
+      // 로그는 평소엔 접어 둔다. 체크하면 펼쳐지고, 그 선택을 기억한다.
+      const logShow = document.getElementById("logShow");
+      function logSync() {
+        logEl.hidden = !logShow.checked;
+        try {
+          localStorage.setItem("n6.log", logShow.checked ? "1" : "0");
+        } catch (e) {}
+      }
+      logShow.addEventListener("change", logSync);
+      try {
+        logShow.checked = localStorage.getItem("n6.log") === "1";
+      } catch (e) {}
+      logSync();
+
+
+      //------------------------------------------------------------- wifi
+      // 상태·스캔 결과는 Wi-Fi 태스크가 1초마다 떠 두는 캐시를 읽는다(장치에서 NCP
+      // 를 직접 물으면 SPI 대기로 EP0 가 묶인다). 동작은 커맨드로 요청만 남긴다.
+      //
+      // 모드는 Off / STA / AP 셋 중 하나로 배타적이다:
+      //   Off = 라디오 끔, STA = 공유기에 붙음, AP = 이 장치가 공유기가 됨.
+      // AP 로 갈 때는 스테이션을 끊고 netif 를 AP 채널로 옮기며, 호스트의 작은
+      // DHCP 서버(dhcpd.c)가 폰에게 192.168.4.x 를 준다.
+      const modeOff = document.getElementById("modeOff");
+      const modeSta = document.getElementById("modeSta");
+      const modeAp = document.getElementById("modeAp");
+      const wifiState = document.getElementById("wifiState");
+      const wifiIp = document.getElementById("wifiIp");
+      const wifiSsid = document.getElementById("wifiSsid");
+      const wifiPwd = document.getElementById("wifiPwd");
+      const wifiList = document.getElementById("wifiList");
+      const apSsid = document.getElementById("apSsid");
+      const apPwd = document.getElementById("apPwd");
+      let wifiScanning = false;
+      let wifiScanSeen = null; // 마지막으로 그린 스캔 텍스트(불필요한 재그림 방지)
+
+      async function refreshWifi() {
+        if (!dev) return;
+        try {
+          const txt = (await readVendorStr(WIFIREQ.STATUS, 192)) || "";
+          const kv = {};
+          for (const tok of txt.trim().split(/\s+/)) {
+            const i = tok.indexOf("=");
+            if (i > 0) kv[tok.slice(0, i)] = tok.slice(i + 1);
+          }
+
+          const ap = kv.ap === "1";
+          const on = kv.on === "1";
+          (ap ? modeAp : on ? modeSta : modeOff).checked = true;
+          wifiPanelGate(ap ? "ap" : on ? "sta" : "off");
+          wifiScanning = kv.scan === "1";
+
+          if (ap && kv.apssid && kv.apssid !== "-") apSsid.value = apSsid.value || kv.apssid;
+
+          const ssid = kv.ssid && kv.ssid !== "-" ? kv.ssid : "";
+          if (kv.ready !== "1") {
+            wifiState.textContent = "NCP not ready";
+          } else if (ap) {
+            wifiState.textContent = 'SoftAP "' + (kv.apssid || "?") + '" — 폰이 붙을 수 있음';
+          } else if (!on) {
+            wifiState.textContent = "radio off";
+          } else if (wifiScanning) {
+            wifiState.textContent = "scanning…";
+          } else if (ssid) {
+            wifiState.textContent = ssid + "  " + kv.rssi + " dBm  (" + kv.state + ")";
+          } else {
+            wifiState.textContent = "not associated";
+          }
+
+          const ip = kv.ip && kv.ip !== "-" ? kv.ip : "";
+          wifiIp.textContent = ip ? "IP " + ip : "";
+          wifiState.style.color = ip ? "var(--ok)" : "";
+        } catch (e) {
+          log("wifi status error:", e.name, e.message);
+        }
+      }
+
+      // "<rssi> <security> <ssid>" 한 줄에 하나. 신호 순으로 정렬해 보여준다.
+      async function refreshWifiScan() {
+        if (!dev) return;
+        try {
+          const txt = (await readVendorStr(WIFIREQ.SCAN, WIFI_SCAN_MAX)) || "";
+          if (txt === wifiScanSeen) return;   // 바뀜 게 없으면 목록을 다시 그리지 않는다
+          wifiScanSeen = txt;
+          const aps = txt
+            .split(/\r?\n/)
+            .filter(Boolean)
+            .map((l) => {
+              const p = l.split(" ");
+              return { rssi: parseInt(p[0], 10) || 0, sec: p[1] || "", ssid: p.slice(2).join(" ") };
+            })
+            .sort((a, b) => b.rssi - a.rssi);
+
+          wifiList.innerHTML = "";
+          for (const ap of aps) {
+            const li = document.createElement("li");
+            const nm = document.createElement("span");
+            nm.className = "fname";
+            nm.textContent = ap.ssid;
+            const sg = document.createElement("span");
+            sg.className = "fsz";
+            sg.textContent = ap.rssi + " dBm · " + ap.sec;
+            const sel = document.createElement("button");
+            sel.className = "iconbtn";
+            sel.textContent = "선택";
+            sel.onclick = () => {
+              wifiSsid.value = ap.ssid;
+              wifiPwd.focus();
+            };
+            li.append(nm, sg, sel);
+            wifiList.append(li);
+          }
+          if (!aps.length) {
+            const li = document.createElement("li");
+            li.textContent = "(no scan result — Scan 을 눌러 보세요)";
+            wifiList.append(li);
+          }
+        } catch (e) {
+          log("wifi scan error:", e.name, e.message);
+        }
+      }
+
+      async function wifiJoinNow() {
+        if (!dev) {
+          log("wifi: not connected");
+          return;
+        }
+        const ssid = wifiSsid.value.trim();
+        if (!ssid) {
+          log("wifi: enter an SSID first");
+          return;
+        }
+        try {
+          const data = new TextEncoder().encode(ssid + "\n" + wifiPwd.value);
+          const r = await dev.controlTransferOut(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: WIFIREQ.JOIN,
+              value: 0,
+              index: 0,
+            },
+            data,
+          );
+          log('wifi join "' + ssid + '" -> ' + r.status);
+          wifiPwd.value = "";                       // 비밀번호를 화면에 남기지 않는다
+          // 연결은 몇 초 걸린다 — 이후 상태는 아래 주기 폴링이 따라간다.
+        } catch (e) {
+          log("wifi join error:", e.name, e.message);
+        }
+      }
+
+
+      // 모드에 따라 쓸 수 없는 패널을 잠근다:
+      //   Off  → Join·SoftAP 둘 다 (라디오가 꺼져 있으니 할 게 없다)
+      //   STA  → SoftAP  (지금은 공유기에 붙는 모드)
+      //   AP   → Join    (AP 전용이라 스테이션으로 접속하지 않는다)
+      const panelJoin = document.getElementById("panelJoin");
+      const panelAp = document.getElementById("panelAp");
+
+      function panelSetEnabled(panel, on) {
+        panel.classList.toggle("disabled", !on);
+        for (const el of panel.querySelectorAll("input, button")) el.disabled = !on;
+      }
+      function wifiPanelGate(mode) {
+        panelSetEnabled(panelJoin, mode === "sta");
+        panelSetEnabled(panelAp, mode === "ap");
+      }
+
+      /* 시작 상태: 아직 장치 값을 모르니 Off 로 잠가 둔다(연결 후 refreshWifi 가 맞춘다). */
+      wifiPanelGate("off");
+
+      // 모드 라디오. AP 로 갈 때만 SSID/비밀번호를 실어 보낸다(0x28, wValue=1).
+      // SSID 를 비워 두면 장치가 직전 값을 쓰고, 그것도 없으면 AP 가 안 뜬다.
+      async function wifiSetMode(mode) {
+        if (!dev) {
+          log("wifi: not connected");
+          return;
+        }
+        if (mode === "ap") {
+          const ssid = apSsid.value.trim() || (document.getElementById("devName").textContent || "").trim();
+          try {
+            const data = new TextEncoder().encode(ssid + "\n" + apPwd.value);
+            const r = await dev.controlTransferOut(
+              {
+                requestType: "vendor",
+                recipient: "device",
+                request: WIFIREQ.AP,
+                value: 1,
+                index: 0,
+              },
+              data,
+            );
+            log('wifi AP "' + ssid + '" -> ' + r.status);
+          } catch (e) {
+            log("wifi AP error:", e.name, e.message);
+          }
+          return;
+        }
+
+        // STA / Off 로 돌아갈 때는 먼저 AP 를 내리고(0x28, wValue=0) 라디오를 맞춘다.
+        try {
+          await dev.controlTransferOut(
+            {
+              requestType: "vendor",
+              recipient: "device",
+              request: WIFIREQ.AP,
+              value: 0,
+              index: 0,
+            },
+            new Uint8Array(0),
+          );
+        } catch (e) {}
+        await sendCmdRaw(mode === "sta" ? CMD.WIFI_ON : CMD.WIFI_OFF);
+      }
+
+      for (const [el, mode] of [
+        [modeOff, "off"],
+        [modeSta, "sta"],
+        [modeAp, "ap"],
+      ]) {
+        el.addEventListener("change", () => {
+          wifiPanelGate(mode);
+          ctrlQueue(() => wifiSetMode(mode));
+          setTimeout(() => ctrlQueue(refreshWifi), 1200);
+        });
+      }
+      document.getElementById("wifiScan").onclick = async () => {
+        await sendCmd(CMD.WIFI_SCAN);
+        log("wifi: scanning…");
+        ctrlQueue(refreshWifi);   // 결과는 주기 폴링이 가져온다(scan=1 → 0 전환 감지)
+      };
+      document.getElementById("wifiJoin").onclick = () => wifiJoinNow();
+      wifiPwd.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") wifiJoinNow();
+      });
+
+
+      // WiFi 탭이 보이는 동안만 주기 갱신. 접속(연결→DHCP)과 스캔은 몇 초씩 걸려서
+      // 버튼을 누른 뒤 한 번만 읽으면 결과를 놓친다 — 그래서 예전엔 다른 탭을
+      // 갔다 와야 값이 보였다. 탭이 닫혀 있으면 아무것도 보내지 않는다.
+      //
+      // 목록도 매 틱 같이 읽는다. 처음엔 "스캔이 끝나는 순간"(scan 1→0)만 잡아
+      // 읽었는데, 스캔이 폴링 간격보다 빨리 끝나면 그 전환을 못 봐서 목록이
+      // 영영 안 채워졌다. 최대 768B 읽기라 2초에 한 번은 부담이 안 된다.
+      setInterval(() => {
+        if (!dev) return;
+        if (document.getElementById("pane-wifi").hidden) return;
+        ctrlQueue(async () => {
+          await refreshWifi();
+          await refreshWifiScan();
+        });
+      }, 2000);
+
+      //------------------------------------------------------------- tabs (영상 아래 제어 탭)
+      const tabBtns = Array.from(document.querySelectorAll(".tabbar .tab"));
+      function selectTab(id) {
+        // 클립 재생은 Storage 탭에서만 의미가 있다. 다른 탭으로 나가면 영상 파이프를
+        // 라이브로 되돌린다 — 별도 "Live" 버튼을 두지 않고 탭 이동이 그 역할을 한다.
+        if (dev && playingName && id !== "tab-storage") {
+          sendCmd(CMD.PLAY_STOP);
+          setTimeout(refreshRecStatus, 300);
+        }
+        // Storage 탭에 들어오는 순간 한 번 당겨온다. 목록은 장치가 유휴일 때
+        // 갱신하는 캐시라, 탭을 열자마자 폴링(5초)을 기다리면 비어 보일 수 있다.
+        if (dev && id === "tab-storage") {
+          refreshRecStatus();
+          refreshRecList();
+          refreshSdStatus();
+        }
+        if (dev && id === "tab-wifi") {
+          refreshWifi();
+          refreshWifiScan();
+        }
+        tabBtns.forEach((t) => {
+          const on = t.id === id;
+          t.setAttribute("aria-selected", on ? "true" : "false");
+          t.tabIndex = on ? 0 : -1;
+          document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+        });
+        try {
+          localStorage.setItem("n6.tab", id);
+        } catch (e) {}
+      }
+      tabBtns.forEach((t, i) => {
+        t.onclick = () => selectTab(t.id);
+        t.addEventListener("keydown", (e) => {
+          // ←/→ 로 탭 이동
+          const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+          if (!d) return;
+          e.preventDefault();
+          const n = tabBtns[(i + d + tabBtns.length) % tabBtns.length];
+          selectTab(n.id);
+          n.focus();
+        });
+      });
+      (function restoreTab() {
+        let id = null;
+        try {
+          id = localStorage.getItem("n6.tab");
+        } catch (e) {}
+        selectTab(tabBtns.some((t) => t.id === id) ? id : tabBtns[0].id);
+      })();
+
+      navigator.usb &&
+        navigator.usb.addEventListener("disconnect", (e) => {
+          if (e.device === dev) disconnect();
+        });
+      log(
+        'Ready (v5: composite, vendor-itf, device-name/mDNS). Click "Connect" and pick the STM32 device.',
+      );
+    </script>
+  </body>
+</html>
